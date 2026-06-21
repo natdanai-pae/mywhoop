@@ -1,6 +1,6 @@
 # How it works — the math, in the open
 
-Every number this engine produces comes from a published formula, implemented in `Sources/WhoopCore` and pinned by
+Every number this engine produces comes from a published formula, implemented in `Sources/GenieMax` and pinned by
 golden-vector tests. This page shows the actual math (GitHub renders the equations). Nothing here is a black box.
 
 ```mermaid

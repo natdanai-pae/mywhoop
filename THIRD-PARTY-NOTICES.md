@@ -1,9 +1,9 @@
 # Third-Party Notices
 
-WhoopCore is MIT-licensed. It uses the following third-party components, each under its own license. Refer to each
+GenieMax is MIT-licensed. It uses the following third-party components, each under its own license. Refer to each
 project for the authoritative license text.
 
-## Swift package (`Sources/WhoopCore`)
+## Swift package (`Sources/GenieMax`)
 - **swift-sodium** — https://github.com/jedisct1/swift-sodium — libsodium bindings (Argon2id, XChaCha20-Poly1305,
   Ed25519/X25519). See the project's LICENSE.
 - **BIP-39 English wordlist** (`BIP39Words.swift`) — the standard 2048-word list from BIP-0039

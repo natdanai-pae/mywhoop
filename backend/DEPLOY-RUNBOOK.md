@@ -53,7 +53,7 @@ curl -i -X PUT https://whoop-e2ee-sync.<your-subdomain>.workers.dev/v1/blob -d '
 (Real reads/writes need a valid Apple/Google id-token, which the app sends after Sign in with Apple.)
 
 ## 6. Wire it into the app
-1. Build/deploy the iOS app once after this session — the first build fetches **swift-sodium** automatically (it's a transitive dependency of WhoopCore; no `project.yml` change needed). Production enrollment now uses **Argon2id (envelope v2)**.
+1. Build/deploy the iOS app once after this session — the first build fetches **swift-sodium** automatically (it's a transitive dependency of GenieMax; no `project.yml` change needed). Production enrollment now uses **Argon2id (envelope v2)**.
 2. In the app: **Settings → Cloud Sync → End-to-end encrypted sync**.
 3. Tap **Sign in with Apple** → **Protect my data** (write down the recovery phrase).
 4. Paste your Worker URL into **Sync server URL**, then tap **Sync now**.

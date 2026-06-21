@@ -1,4 +1,4 @@
-# Contributing to WhoopCore
+# Contributing to GenieMax
 
 Thanks for your interest! This project is a local-first, MIT-licensed health-analytics engine.
 
