@@ -1,0 +1,15 @@
+name = "whoop-e2ee-sync"
+main = "src/index.ts"
+compatibility_date = "2024-09-01"
+
+# D1: create your own database and replace these placeholders before deploying.
+[[d1_databases]]
+binding = "DB"
+database_name = "your-e2ee-meta"
+database_id = "<YOUR_D1_DATABASE_ID>"
+
+# OAuth audiences to require.
+[vars]
+APPLE_AUD = "com.example.app"
+# Comma-separated allow-list. Replace with your Google OAuth client ids before deploying.
+GOOGLE_AUD = "<YOUR_GOOGLE_CLIENT_IDS>"

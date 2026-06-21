@@ -1,0 +1,17 @@
+{
+  "name": "whoop-e2ee-sync",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Zero-knowledge E2EE blob-sync backend (Cloudflare Worker) for the WHOOP-style app. Stores only ciphertext.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute whoop-e2ee-meta --file=./schema.sql",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240909.0",
+    "typescript": "^5.5.0",
+    "wrangler": "^3.78.0"
+  }
+}

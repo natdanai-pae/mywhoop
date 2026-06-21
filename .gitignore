@@ -1,0 +1,25 @@
+# macOS / editor
+.DS_Store
+*.swp
+
+# Swift / SwiftPM
+.build/
+DerivedData/
+*.xcodeproj
+.swiftpm/
+Package.resolved
+
+# Backend (Cloudflare Worker)
+backend/node_modules/
+backend/.wrangler/
+backend/dist/
+
+# Local secrets / config (never commit)
+*.env
+.env
+keys/
+*.p8
+
+# OSS-prep scratch
+_os*
+_internal/
