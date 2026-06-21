@@ -14,7 +14,7 @@
   <a href="https://github.com/satayutata/geniemax-core/actions/workflows/ci.yml"><img src="https://github.com/satayutata/geniemax-core/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT"></a>
   <img src="https://img.shields.io/badge/Swift-6.0-orange.svg" alt="Swift 6">
-  <a href="https://testflight.apple.com/join/XXXXXXXX"><img src="https://img.shields.io/badge/Download-TestFlight-0D96F6?logo=apple&logoColor=white" alt="TestFlight"></a>
+  <a href="https://testflight.apple.com/join/XNHDWMgh"><img src="https://img.shields.io/badge/Download-TestFlight-0D96F6?logo=apple&logoColor=white" alt="TestFlight"></a>
 </p>
 
 <p align="center">
@@ -33,8 +33,8 @@ on your device.
 
 ## 📲 Try the app
 
-A companion iOS app (the screens below) is in beta on **TestFlight**:
-**[→ Download on TestFlight](https://testflight.apple.com/join/XXXXXXXX)** *(public invite link — paste yours here)*
+A companion iOS app (the screens below) is in public beta on **TestFlight**:
+**[→ Join the beta on TestFlight](https://testflight.apple.com/join/XNHDWMgh)**
 
 ## The story
 
