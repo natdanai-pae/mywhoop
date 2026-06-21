@@ -18,7 +18,9 @@
 </p>
 
 <p align="center">
-  <img src="docs/demo.gif" width="250" alt="GenieMax app — recovery, sleep, vitals, HRV, workout, coach">
+  <img src="docs/screenshots/today.png" width="172" alt="Today — recovery & strain">
+  <img src="docs/screenshots/sleep.png" width="172" alt="Sleep stages">
+  <img src="docs/screenshots/vitals.png" width="172" alt="Vitals / biometrics">
 </p>
 
 ## Why this exists
@@ -35,6 +37,16 @@ on your device.
 
 A companion iOS app (the screens below) is in public beta on **TestFlight**:
 **[→ Join the beta on TestFlight](https://testflight.apple.com/join/XNHDWMgh)**
+
+## Compatibility
+
+| | Supported now | Not yet |
+|---|---|---|
+| **Sensor hardware** | **WHOOP 5.0** · **WHOOP MG** | other wristbands / wearables |
+| **Platform** | **iOS** (TestFlight) | **Android** |
+
+The frame decoding currently targets the WHOOP 5.0 / WHOOP MG data format only — other devices, and an Android
+client, are on the roadmap.
 
 ## The story
 
