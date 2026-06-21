@@ -146,7 +146,7 @@ sample data (no real dates, no personal identifiers).
 ## Acknowledgements
 
 This project stands on prior open work:
-- **Goose — "Local Companion for WHOOP 5.0"** — the companion project whose approach and public reverse-engineering
+- **Goose** — the open-source companion project (for the same wearable) whose approach and public reverse-engineering
   this work studied and built on. *(add the canonical Goose repo link here before publishing)*
 - **[Bevel](https://www.bevel.health/)** — a major *visual/UX design* reference for health-metric surfaces. Not affiliated.
 - **[swift-sodium](https://github.com/jedisct1/swift-sodium)** / libsodium — the cryptographic primitives behind the vault.
