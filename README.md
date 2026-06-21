@@ -45,6 +45,9 @@ After the reverse-engineering, these raw sensor frames are parsed and mapped int
 | IMU frame | 3-axis accelerometer + gyroscope | Motion, **steps**, sleep actigraphy |
 | Optical frame | PPG / perfusion | SpO₂, perfusion, PPG-derived HRV |
 
+📐 **Want the formulas?** Every calculation — HRV, recovery, strain, sleep, calories, fitness age — is written out
+(rendered as equations) in **[How it works → the math](docs/HOW-IT-WORKS.md)**.
+
 > Frame-format parsing is included as `WhoopFrame` / `WhoopDecode` for **interoperability with a device you own** —
 > there is **no** connection/transport code and no firmware here. This is an independent project and is **not
 > affiliated with, endorsed by, or connected to WHOOP** (a trademark of its owner).
@@ -148,7 +151,7 @@ sample data (no real dates, no personal identifiers).
 This project stands on prior open work:
 - **Goose** — the open-source companion project (for the same wearable) whose approach and public reverse-engineering
   this work studied and built on. *(add the canonical Goose repo link here before publishing)*
-- **[Bevel](https://www.bevel.health/)** — a major *visual/UX design* reference for health-metric surfaces. Not affiliated.
+- Visual/UX design inspired by modern health-dashboard styles — no brand affiliation.
 - **[swift-sodium](https://github.com/jedisct1/swift-sodium)** / libsodium — the cryptographic primitives behind the vault.
 - **BIP-39** — the standard English word list used for recovery phrases.
 - Public HRV / sleep research, incl. heart-rate-volatility work separating true sleep from quiet wake.
