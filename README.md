@@ -18,9 +18,9 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/today.png" width="172" alt="Today — recovery & strain">
-  <img src="docs/screenshots/sleep.png" width="172" alt="Sleep stages">
-  <img src="docs/screenshots/vitals.png" width="172" alt="Vitals / biometrics">
+  <img src="docs/screenshots/sleep.jpg" width="172" alt="Sleep stages + hypnogram">
+  <img src="docs/screenshots/monitor.jpg" width="172" alt="Cardio age & autonomic balance">
+  <img src="docs/screenshots/body.jpg" width="172" alt="Body composition">
 </p>
 
 ## Why this exists
@@ -88,19 +88,19 @@ out and matched by a unit test. **[See the full breakdown → docs/HOW-IT-WORKS.
 
 ## Showcase
 
-> Screens from the **GenieMax** iOS app (synthetic demo data). **This repository is the analytics engine behind it.**
+> Real screens from the **GenieMax** iOS app (personal identifiers removed). **This repository is the analytics engine behind them.**
 
 <table>
   <tr>
-    <td align="center"><img src="docs/screenshots/today.png" width="190"><br><sub><b>Today</b> — recovery, strain & readiness</sub></td>
-    <td align="center"><img src="docs/screenshots/sleep.png" width="190"><br><sub><b>Sleep</b> — stages, SRI, sleep debt</sub></td>
-    <td align="center"><img src="docs/screenshots/vitals.png" width="190"><br><sub><b>Vitals</b> — full biometrics</sub></td>
-    <td align="center"><img src="docs/screenshots/hrv.png" width="190"><br><sub><b>HRV</b> — baselines + trend</sub></td>
+    <td align="center"><img src="docs/screenshots/today.jpg" width="190"><br><sub><b>Today</b> — recovery, strain & vitals</sub></td>
+    <td align="center"><img src="docs/screenshots/calories.jpg" width="190"><br><sub><b>Calories</b> — burn, Move & zones</sub></td>
+    <td align="center"><img src="docs/screenshots/activities.jpg" width="190"><br><sub><b>Activities</b> — training log</sub></td>
+    <td align="center"><img src="docs/screenshots/habits.jpg" width="190"><br><sub><b>Training habits</b></sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/workout.png" width="190"><br><sub><b>Workout</b> — live timer & strain</sub></td>
-    <td align="center"><img src="docs/screenshots/settings.png" width="190"><br><sub><b>Device & calibration</b></sub></td>
-    <td align="center"><img src="docs/screenshots/coach.png" width="190"><br><sub><b>AI coach</b></sub></td>
+    <td align="center"><img src="docs/screenshots/fitness.jpg" width="190"><br><sub><b>Fitness</b> — VO₂max, rhythm, load</sub></td>
+    <td align="center"><img src="docs/screenshots/journal.jpg" width="190"><br><sub><b>Journal</b> — the coach learns</sub></td>
+    <td align="center"><img src="docs/screenshots/lockscreen.jpg" width="190"><br><sub><b>Lock-screen Live Activity</b></sub></td>
     <td align="center"><sub>…and more</sub></td>
   </tr>
 </table>
