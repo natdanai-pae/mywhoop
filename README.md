@@ -175,7 +175,7 @@ CI. Run `swift test`. Fixtures use time-shifted, de-identified sample data (no r
 ## Acknowledgements
 
 - **Goose** — the open-source companion project (for the same wearable) whose approach and public reverse-engineering
-  this work studied and built on. *(add the canonical Goose repo link here before publishing)*
+  this work studied and built on.
 - Visual/UX design inspired by modern health-dashboard styles — no brand affiliation.
 - **[swift-sodium](https://github.com/jedisct1/swift-sodium)** / libsodium — the crypto behind the vault.
 - **BIP-39** — the standard English word list used for recovery phrases.
