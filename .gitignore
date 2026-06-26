@@ -9,6 +9,11 @@ DerivedData/
 .swiftpm/
 Package.resolved
 
+# Local iOS app host project
+!ios-app/*.xcodeproj/
+!ios-app/*.xcodeproj/**
+ios-app/build/
+
 # Backend (Cloudflare Worker)
 backend/node_modules/
 backend/.wrangler/
