@@ -160,7 +160,7 @@ struct TodayView: View {
 
 struct PetView: View {
   @EnvironmentObject private var model: AppModel
-  @State private var pose = PetPose(xDegrees: 0, yDegrees: 180, zDegrees: 0, zoom: 1.0)
+  @State private var pose = PetPose.origin
 
   var body: some View {
     let state = PetState(score: model.petScore)
@@ -217,6 +217,8 @@ struct PetView: View {
 }
 
 struct PetPose: Equatable {
+  static let origin = PetPose(xDegrees: -89, yDegrees: 9, zDegrees: 0, zoom: 0.82)
+
   var xDegrees: Double
   var yDegrees: Double
   var zDegrees: Double
@@ -233,7 +235,7 @@ struct PetPoseControls: View {
           .font(.headline)
         Spacer()
         Button("Reset") {
-          pose = PetPose(xDegrees: 0, yDegrees: 180, zDegrees: 0, zoom: 1.0)
+          pose = .origin
         }
         .font(.subheadline.bold())
       }
