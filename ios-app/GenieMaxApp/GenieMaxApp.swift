@@ -160,6 +160,7 @@ struct TodayView: View {
 
 struct PetView: View {
   @EnvironmentObject private var model: AppModel
+  @State private var pose = PetPose(xDegrees: 0, yDegrees: 180, zDegrees: 0, zoom: 1.0)
 
   var body: some View {
     let state = PetState(score: model.petScore)
@@ -169,7 +170,7 @@ struct PetView: View {
           VStack(alignment: .leading, spacing: 16) {
             HeaderBlock(title: "Jack Russell : Maruchan", subtitle: model.hasRealMetrics ? "Health companion" : "Waiting for WHOOP data")
 
-            PetSceneView(state: state)
+            PetSceneView(state: state, pose: pose)
               .frame(height: sceneHeight(for: proxy.size))
               .clipShape(RoundedRectangle(cornerRadius: 8))
               .overlay(alignment: .topLeading) {
@@ -181,6 +182,8 @@ struct PetView: View {
                   .padding(14)
               }
               .accessibilityLabel("Jack Russell Maruchan companion")
+
+            PetPoseControls(pose: $pose)
 
             VStack(alignment: .leading, spacing: 14) {
               HStack(alignment: .lastTextBaseline) {
@@ -210,6 +213,73 @@ struct PetView: View {
 
   private func sceneHeight(for size: CGSize) -> CGFloat {
     min(max(size.height * 0.46, 360), 480)
+  }
+}
+
+struct PetPose: Equatable {
+  var xDegrees: Double
+  var yDegrees: Double
+  var zDegrees: Double
+  var zoom: Double
+}
+
+struct PetPoseControls: View {
+  @Binding var pose: PetPose
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack {
+        Text("3D tune")
+          .font(.headline)
+        Spacer()
+        Button("Reset") {
+          pose = PetPose(xDegrees: 0, yDegrees: 180, zDegrees: 0, zoom: 1.0)
+        }
+        .font(.subheadline.bold())
+      }
+
+      PoseSlider(label: "X", value: $pose.xDegrees, range: -180...180, suffix: "deg")
+      PoseSlider(label: "Y", value: $pose.yDegrees, range: -180...180, suffix: "deg")
+      PoseSlider(label: "Z", value: $pose.zDegrees, range: -180...180, suffix: "deg")
+      PoseSlider(label: "Zoom", value: $pose.zoom, range: 0.5...2.2, suffix: "x", decimals: 2)
+
+      Text(String(format: "X %.0f deg  Y %.0f deg  Z %.0f deg  Zoom %.2fx", pose.xDegrees, pose.yDegrees, pose.zDegrees, pose.zoom))
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(.secondary)
+        .lineLimit(2)
+        .minimumScaleFactor(0.8)
+    }
+    .padding()
+    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+  }
+}
+
+struct PoseSlider: View {
+  let label: String
+  @Binding var value: Double
+  let range: ClosedRange<Double>
+  let suffix: String
+  var decimals = 0
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack {
+        Text(label)
+          .font(.subheadline.bold())
+        Spacer()
+        Text(formattedValue)
+          .font(.subheadline.monospacedDigit())
+          .foregroundStyle(.secondary)
+      }
+      Slider(value: $value, in: range)
+    }
+  }
+
+  private var formattedValue: String {
+    if decimals == 0 {
+      return String(format: "%.0f %@", value, suffix)
+    }
+    return String(format: "%.\(decimals)f%@", value, suffix)
   }
 }
 
@@ -565,6 +635,7 @@ enum PetState {
 
 struct PetSceneView: UIViewRepresentable {
   let state: PetState
+  let pose: PetPose
 
   func makeUIView(context: Context) -> SCNView {
     let view = SCNView()
@@ -575,12 +646,14 @@ struct PetSceneView: UIViewRepresentable {
     view.loops = true
     view.scene = makeScene()
     view.pointOfView = view.scene?.rootNode.childNode(withName: "petCamera", recursively: false)
+    applyPose(to: view.scene)
     return view
   }
 
   func updateUIView(_ view: SCNView, context: Context) {
     view.scene?.rootNode.childNode(withName: "petRoot", recursively: false)?.opacity = opacity
     view.pointOfView = view.scene?.rootNode.childNode(withName: "petCamera", recursively: false)
+    applyPose(to: view.scene)
   }
 
   private var opacity: CGFloat {
@@ -608,8 +681,6 @@ struct PetSceneView: UIViewRepresentable {
         petRoot.addChildNode(node)
       }
       fit(node: petRoot)
-      petRoot.eulerAngles.y = .pi
-      animateAnchoredIdle(node: petRoot)
       scene.rootNode.addChildNode(petRoot)
     }
 
@@ -636,6 +707,25 @@ struct PetSceneView: UIViewRepresentable {
     scene.rootNode.addChildNode(fillLight)
 
     return scene
+  }
+
+  private func applyPose(to scene: SCNScene?) {
+    guard let scene else { return }
+    let petRoot = scene.rootNode.childNode(withName: "petRoot", recursively: false)
+    petRoot?.eulerAngles = SCNVector3(
+      degreesToRadians(pose.xDegrees),
+      degreesToRadians(pose.yDegrees),
+      degreesToRadians(pose.zDegrees)
+    )
+    petRoot?.opacity = opacity
+
+    let camera = scene.rootNode.childNode(withName: "petCamera", recursively: false)
+    let clampedZoom = Swift.max(0.5, Swift.min(2.2, pose.zoom))
+    camera?.position = SCNVector3(0, 0.08, Float(2.35 / clampedZoom))
+  }
+
+  private func degreesToRadians(_ degrees: Double) -> Float {
+    Float(degrees * .pi / 180)
   }
 
   private func fit(node: SCNNode) {
