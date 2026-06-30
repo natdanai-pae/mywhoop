@@ -2,6 +2,7 @@ import SwiftUI
 import GenieMax
 import SceneKit
 import CoreBluetooth
+import Combine
 
 @main
 struct KiriTaraMaruApp: App {
@@ -21,6 +22,7 @@ final class AppModel: ObservableObject {
   let metrics: DashboardMetrics
   let insights: [Insight]
   let hasRealMetrics = false
+  private var cancellables = Set<AnyCancellable>()
 
   init() {
     var state = PersistedState()
@@ -66,6 +68,10 @@ final class AppModel: ObservableObject {
       sleepScore: latest?.sleepScore,
       sleepDebt: daily.sleepDebtH
     )
+
+    connector.objectWillChange
+      .sink { [weak self] _ in self?.objectWillChange.send() }
+      .store(in: &cancellables)
   }
 }
 
@@ -317,15 +323,18 @@ struct ConnectView: View {
           if let name = model.connector.connectedName {
             MetricRow(title: "Device", value: name)
           }
+          if model.connector.isScanning {
+            ProgressView("Scanning nearby Bluetooth devices")
+          }
         }
 
         Section("Pair WHOOP") {
           Button {
-            model.connector.scan()
+            model.connector.isScanning ? model.connector.stopScan() : model.connector.scan()
           } label: {
-            Label(model.connector.isScanning ? "Scanning..." : "Scan for WHOOP", systemImage: "dot.radiowaves.left.and.right")
+            Label(model.connector.isScanning ? "Stop scanning" : "Scan for WHOOP", systemImage: "dot.radiowaves.left.and.right")
           }
-          .disabled(!model.connector.canScan)
+          .disabled(!model.connector.canScan && !model.connector.isScanning)
 
           ForEach(model.connector.devices) { device in
             Button {
@@ -334,6 +343,10 @@ struct ConnectView: View {
               HStack {
                 VStack(alignment: .leading) {
                   Text(device.name)
+                    .fontWeight(device.isLikelyWhoop ? .semibold : .regular)
+                  Text(device.detailText)
+                    .font(.caption)
+                    .foregroundStyle(device.isLikelyWhoop ? .green : .secondary)
                   Text(device.id.uuidString)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -343,6 +356,12 @@ struct ConnectView: View {
                 Image(systemName: "link")
               }
             }
+          }
+
+          if !model.connector.isScanning && model.connector.devices.isEmpty {
+            Text("Keep your WHOOP close to the phone. If it does not show a name, it may appear as an unnamed nearby device.")
+              .font(.footnote)
+              .foregroundStyle(.secondary)
           }
         }
 
@@ -661,7 +680,13 @@ struct ShibaSceneView: UIViewRepresentable {
 struct WhoopDevice: Identifiable, Equatable {
   let id: UUID
   let name: String
+  let rssi: Int
+  let isLikelyWhoop: Bool
   fileprivate let peripheral: CBPeripheral
+
+  var detailText: String {
+    "\(isLikelyWhoop ? "Likely WHOOP" : "Nearby device") · RSSI \(rssi)"
+  }
 }
 
 final class WhoopConnector: NSObject, ObservableObject {
@@ -672,6 +697,7 @@ final class WhoopConnector: NSObject, ObservableObject {
   @Published private(set) var statusIcon = "hourglass"
 
   private var central: CBCentralManager!
+  private var connectedPeripheral: CBPeripheral?
 
   override init() {
     super.init()
@@ -684,23 +710,62 @@ final class WhoopConnector: NSObject, ObservableObject {
 
   func scan() {
     guard central.state == .poweredOn else {
-      statusText = "Bluetooth is not ready"
+      statusText = bluetoothUnavailableText
       statusIcon = "exclamationmark.triangle"
       return
     }
+    NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(finishScan), object: nil)
+    central.stopScan()
     devices.removeAll()
     connectedName = nil
     isScanning = true
-    statusText = "Scanning for WHOOP"
+    statusText = "Scanning for WHOOP nearby"
     statusIcon = "dot.radiowaves.left.and.right"
     central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+    perform(#selector(finishScan), with: nil, afterDelay: 12)
+  }
 
+  func stopScan() {
+    NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(finishScan), object: nil)
+    finishScan()
   }
 
   func connect(_ device: WhoopDevice) {
+    stopScan()
     statusText = "Connecting to \(device.name)"
     statusIcon = "link"
+    connectedPeripheral = device.peripheral
     central.connect(device.peripheral)
+  }
+
+  @objc private func finishScan() {
+    central.stopScan()
+    isScanning = false
+    if connectedName != nil {
+      statusText = "Connected"
+      statusIcon = "checkmark.circle.fill"
+    } else if devices.isEmpty {
+      statusText = "No nearby Bluetooth devices found"
+      statusIcon = "questionmark.circle"
+    } else {
+      statusText = "Found \(devices.count) nearby device\(devices.count == 1 ? "" : "s")"
+      statusIcon = "checkmark.circle"
+    }
+  }
+
+  private var bluetoothUnavailableText: String {
+    switch central.state {
+    case .poweredOff:
+      return "Bluetooth is off"
+    case .unauthorized:
+      return "Bluetooth permission needed"
+    case .unsupported:
+      return "Bluetooth unsupported"
+    case .resetting:
+      return "Bluetooth is resetting"
+    default:
+      return "Bluetooth is not ready"
+    }
   }
 }
 
@@ -711,9 +776,11 @@ extension WhoopConnector: CBCentralManagerDelegate {
       statusText = "Ready to scan"
       statusIcon = "checkmark.circle"
     case .poweredOff:
+      isScanning = false
       statusText = "Bluetooth is off"
       statusIcon = "bluetooth.slash"
     case .unauthorized:
+      isScanning = false
       statusText = "Bluetooth permission needed"
       statusIcon = "lock"
     case .unsupported:
@@ -727,19 +794,29 @@ extension WhoopConnector: CBCentralManagerDelegate {
 
   func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
     let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
-    let name = advertisedName ?? peripheral.name ?? "Unknown device"
-    guard name.localizedCaseInsensitiveContains("WHOOP") else { return }
-    let device = WhoopDevice(id: peripheral.identifier, name: name, peripheral: peripheral)
-    if !devices.contains(where: { $0.id == device.id }) {
+    let name = advertisedName ?? peripheral.name ?? "Unnamed device"
+    let services = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
+    let likelyWhoop = name.localizedCaseInsensitiveContains("WHOOP") ||
+      services.contains { $0.uuidString.localizedCaseInsensitiveContains("FE") }
+    let device = WhoopDevice(id: peripheral.identifier, name: name, rssi: RSSI.intValue, isLikelyWhoop: likelyWhoop, peripheral: peripheral)
+    if let index = devices.firstIndex(where: { $0.id == device.id }) {
+      devices[index] = device
+    } else {
       devices.append(device)
-      statusText = "Found \(devices.count) WHOOP device\(devices.count == 1 ? "" : "s")"
+      devices.sort {
+        if $0.isLikelyWhoop != $1.isLikelyWhoop { return $0.isLikelyWhoop && !$1.isLikelyWhoop }
+        return $0.rssi > $1.rssi
+      }
+      statusText = "Found \(devices.count) nearby device\(devices.count == 1 ? "" : "s")"
       statusIcon = "checkmark.circle"
     }
   }
 
   func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
     central.stopScan()
+    NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(finishScan), object: nil)
     isScanning = false
+    connectedPeripheral = peripheral
     connectedName = peripheral.name ?? devices.first(where: { $0.id == peripheral.identifier })?.name ?? "WHOOP"
     statusText = "Connected"
     statusIcon = "checkmark.circle.fill"
@@ -747,12 +824,14 @@ extension WhoopConnector: CBCentralManagerDelegate {
 
   func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
     isScanning = false
+    connectedPeripheral = nil
     statusText = error?.localizedDescription ?? "Connection failed"
     statusIcon = "exclamationmark.triangle"
   }
 
   func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
     connectedName = nil
+    connectedPeripheral = nil
     statusText = "Disconnected"
     statusIcon = "xmark.circle"
   }
