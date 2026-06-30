@@ -22,6 +22,8 @@
   <string>$(CURRENT_PROJECT_VERSION)</string>
   <key>LSRequiresIPhoneOS</key>
   <true/>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>KiriTaraMaru uses Bluetooth to find and connect to your WHOOP strap.</string>
   <key>UIApplicationSceneManifest</key>
   <dict>
     <key>UIApplicationSupportsMultipleScenes</key>
