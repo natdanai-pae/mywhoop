@@ -167,7 +167,7 @@ struct PetView: View {
       GeometryReader { proxy in
         ScrollView {
           VStack(alignment: .leading, spacing: 16) {
-            HeaderBlock(title: "Jack Russell", subtitle: model.hasRealMetrics ? "Health companion" : "Waiting for WHOOP data")
+            HeaderBlock(title: "Jack Russell : Maruchan", subtitle: model.hasRealMetrics ? "Health companion" : "Waiting for WHOOP data")
 
             PetSceneView(state: state)
               .frame(height: sceneHeight(for: proxy.size))
@@ -180,11 +180,11 @@ struct PetView: View {
                   .background(.thinMaterial, in: Capsule())
                   .padding(14)
               }
-              .accessibilityLabel("Jack Russell companion")
+              .accessibilityLabel("Jack Russell Maruchan companion")
 
             VStack(alignment: .leading, spacing: 14) {
               HStack(alignment: .lastTextBaseline) {
-                Text("Jack Russell vitality")
+                Text("Maruchan vitality")
                   .font(.title2.bold())
                 Spacer()
                 Text("\(model.petScore)")
@@ -194,7 +194,7 @@ struct PetView: View {
               ProgressView(value: Double(model.petScore), total: 100)
                 .tint(state.tint)
 
-              Text(model.hasRealMetrics ? state.message : "Connect WHOOP to let your Jack Russell react to real recovery and activity.")
+              Text(model.hasRealMetrics ? state.message : "Connect WHOOP to let Maruchan react to real recovery and activity.")
                 .foregroundStyle(.secondary)
             }
             .padding()
@@ -209,7 +209,7 @@ struct PetView: View {
   }
 
   private func sceneHeight(for size: CGSize) -> CGFloat {
-    min(max(size.height * 0.38, 320), 420)
+    min(max(size.height * 0.46, 360), 480)
   }
 }
 
@@ -228,7 +228,7 @@ struct PetMiniPanel: View {
           .frame(width: 42, height: 42)
           .background(state.tint.opacity(0.14), in: Circle())
         VStack(alignment: .leading, spacing: 4) {
-          Text("Jack Russell vitality")
+          Text("Maruchan vitality")
             .font(.headline)
           Text(model.hasRealMetrics ? state.label : "Waiting for WHOOP")
             .font(.subheadline)
@@ -539,13 +539,13 @@ enum PetState {
   var message: String {
     switch self {
     case .thriving:
-      return "Your Jack Russell looks bright today. Keep the streak going."
+      return "Maruchan looks bright today. Keep the streak going."
     case .steady:
-      return "Your Jack Russell is doing okay. A little movement and sleep will help."
+      return "Maruchan is doing okay. A little movement and sleep will help."
     case .tired:
-      return "Your Jack Russell feels low energy. Recovery matters today."
+      return "Maruchan feels low energy. Recovery matters today."
     case .fragile:
-      return "Your Jack Russell needs care. Rest, hydrate, and take it gently."
+      return "Maruchan needs care. Rest, hydrate, and take it gently."
     }
   }
 
@@ -571,6 +571,8 @@ struct PetSceneView: UIViewRepresentable {
     view.backgroundColor = UIColor.systemBackground
     view.allowsCameraControl = false
     view.autoenablesDefaultLighting = false
+    view.isPlaying = true
+    view.loops = true
     view.scene = makeScene()
     view.pointOfView = view.scene?.rootNode.childNode(withName: "petCamera", recursively: false)
     return view
@@ -606,16 +608,17 @@ struct PetSceneView: UIViewRepresentable {
         petRoot.addChildNode(node)
       }
       fit(node: petRoot)
-      loopEmbeddedAnimations(in: petRoot)
-      animate(node: petRoot)
+      animateAnchoredIdle(node: petRoot)
       scene.rootNode.addChildNode(petRoot)
     }
 
     let camera = SCNNode()
     camera.name = "petCamera"
     camera.camera = SCNCamera()
-    camera.camera?.fieldOfView = 38
-    camera.position = SCNVector3(0, 0.05, 5.8)
+    camera.camera?.fieldOfView = 34
+    camera.camera?.zNear = 0.01
+    camera.camera?.zFar = 100
+    camera.position = SCNVector3(0, 0.08, 2.35)
     scene.rootNode.addChildNode(camera)
 
     let keyLight = SCNNode()
@@ -641,7 +644,7 @@ struct PetSceneView: UIViewRepresentable {
     let depth = maximum.z - minimum.z
     let largest = Swift.max(width, Swift.max(height, depth))
     if largest > 0 {
-      let scale = 0.68 / largest
+      let scale = 1.25 / largest
       node.scale = SCNVector3(scale, scale, scale)
     }
     let center = SCNVector3(
@@ -650,41 +653,31 @@ struct PetSceneView: UIViewRepresentable {
       (minimum.z + maximum.z) / 2
     )
     node.pivot = SCNMatrix4MakeTranslation(center.x, center.y, center.z)
-    node.position = SCNVector3(0, -0.16, 0)
+    node.position = SCNVector3(0, -0.08, 0)
   }
 
-  private func animate(node: SCNNode) {
+  private func animateAnchoredIdle(node: SCNNode) {
     let breatheUp = SCNAction.group([
-      .scale(to: 1.035, duration: 1.25),
-      .moveBy(x: 0, y: 0.035, z: 0, duration: 1.25)
+      .scale(to: 1.025, duration: 1.15),
+      .moveBy(x: 0, y: 0.018, z: 0, duration: 1.15)
     ])
     breatheUp.timingMode = .easeInEaseOut
 
     let breatheDown = SCNAction.group([
       .scale(to: 1.0, duration: 1.25),
-      .moveBy(x: 0, y: -0.035, z: 0, duration: 1.25)
+      .moveBy(x: 0, y: -0.018, z: 0, duration: 1.25)
     ])
     breatheDown.timingMode = .easeInEaseOut
 
-    let lookLeft = SCNAction.rotateBy(x: 0, y: .pi / 18, z: 0, duration: 1.4)
+    let lookLeft = SCNAction.rotateBy(x: 0, y: .pi / 28, z: 0, duration: 1.4)
     lookLeft.timingMode = .easeInEaseOut
-    let lookRight = SCNAction.rotateBy(x: 0, y: -.pi / 9, z: 0, duration: 2.8)
+    let lookRight = SCNAction.rotateBy(x: 0, y: -.pi / 14, z: 0, duration: 2.8)
     lookRight.timingMode = .easeInEaseOut
-    let lookCenter = SCNAction.rotateBy(x: 0, y: .pi / 18, z: 0, duration: 1.4)
+    let lookCenter = SCNAction.rotateBy(x: 0, y: .pi / 28, z: 0, duration: 1.4)
     lookCenter.timingMode = .easeInEaseOut
 
     node.runAction(.repeatForever(.sequence([breatheUp, breatheDown])), forKey: "breathing")
     node.runAction(.repeatForever(.sequence([lookLeft, lookRight, lookCenter])), forKey: "lookingAround")
-  }
-
-  private func loopEmbeddedAnimations(in node: SCNNode) {
-    for key in node.animationKeys {
-      guard let player = node.animationPlayer(forKey: key) else { continue }
-      player.animation.repeatCount = .infinity
-      player.animation.isRemovedOnCompletion = false
-      player.play()
-    }
-    node.childNodes.forEach { loopEmbeddedAnimations(in: $0) }
   }
 }
 
