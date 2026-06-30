@@ -657,16 +657,10 @@ struct PetSceneView: UIViewRepresentable {
   }
 
   private func animateAnchoredIdle(node: SCNNode) {
-    let breatheUp = SCNAction.group([
-      .scale(to: 1.025, duration: 1.15),
-      .moveBy(x: 0, y: 0.018, z: 0, duration: 1.15)
-    ])
+    let breatheUp = SCNAction.moveBy(x: 0, y: 0.018, z: 0, duration: 1.15)
     breatheUp.timingMode = .easeInEaseOut
 
-    let breatheDown = SCNAction.group([
-      .scale(to: 1.0, duration: 1.25),
-      .moveBy(x: 0, y: -0.018, z: 0, duration: 1.25)
-    ])
+    let breatheDown = SCNAction.moveBy(x: 0, y: -0.018, z: 0, duration: 1.25)
     breatheDown.timingMode = .easeInEaseOut
 
     let lookLeft = SCNAction.rotateBy(x: 0, y: .pi / 28, z: 0, duration: 1.4)
