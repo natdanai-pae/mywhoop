@@ -20,6 +20,7 @@ final class AppModel: ObservableObject {
   let history: DailyHistory
   let metrics: DashboardMetrics
   let insights: [Insight]
+  let hasRealMetrics = false
 
   init() {
     var state = PersistedState()
@@ -110,35 +111,44 @@ struct TodayView: View {
           HeaderBlock(title: "Today", subtitle: connectionSubtitle)
 
           VStack(spacing: 12) {
-            ScoreCard(title: "Recovery", value: "\(Int(model.metrics.recovery))", suffix: "%", tint: recoveryTint)
-            ScoreCard(title: "Readiness", value: "\(Int(model.metrics.readiness))", suffix: "%", tint: .teal)
-            ScoreCard(title: "Strain", value: String(format: "%.1f", model.metrics.strain), suffix: "/21", tint: .orange)
+            ScoreCard(title: "Recovery", value: scoreText(model.metrics.recovery), suffix: model.hasRealMetrics ? "%" : "", progress: model.hasRealMetrics ? model.metrics.recovery : nil, total: 100, tint: recoveryTint)
+            ScoreCard(title: "Readiness", value: scoreText(model.metrics.readiness), suffix: model.hasRealMetrics ? "%" : "", progress: model.hasRealMetrics ? model.metrics.readiness : nil, total: 100, tint: .teal)
+            ScoreCard(title: "Strain", value: model.hasRealMetrics ? String(format: "%.1f", model.metrics.strain) : "--", suffix: model.hasRealMetrics ? "/21" : "", progress: model.hasRealMetrics ? model.metrics.strain : nil, total: 21, tint: .orange)
           }
 
           SectionHeader("Vitals")
           LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-            MetricTile(title: "RMSSD", value: "\(Int(model.metrics.rmssd)) ms", icon: "waveform.path.ecg")
-            MetricTile(title: "RHR", value: "\(Int(model.metrics.rhr)) bpm", icon: "heart")
-            MetricTile(title: "Sleep", value: "\(Int(model.metrics.sleep))%", icon: "moon.zzz")
-            MetricTile(title: "Steps", value: model.metrics.steps.formatted(), icon: "figure.walk")
+            MetricTile(title: "RMSSD", value: metricText("\(Int(model.metrics.rmssd)) ms"), icon: "waveform.path.ecg")
+            MetricTile(title: "RHR", value: metricText("\(Int(model.metrics.rhr)) bpm"), icon: "heart")
+            MetricTile(title: "Sleep", value: metricText("\(Int(model.metrics.sleep))%"), icon: "moon.zzz")
+            MetricTile(title: "Steps", value: metricText(model.metrics.steps.formatted()), icon: "figure.walk")
           }
 
           PetMiniPanel()
         }
         .padding(20)
+        .padding(.bottom, 88)
       }
       .navigationTitle("KiriTaraMaru")
     }
   }
 
   private var connectionSubtitle: String {
-    model.connector.connectedName.map { "Connected to \($0)" } ?? "WHOOP not connected"
+    model.connector.connectedName.map { "Connected to \($0)" } ?? "WHOOP not connected - real metrics unavailable"
   }
 
   private var recoveryTint: Color {
     if model.metrics.recovery >= 67 { return .green }
     if model.metrics.recovery >= 34 { return .yellow }
     return .red
+  }
+
+  private func scoreText(_ value: Double) -> String {
+    model.hasRealMetrics ? "\(Int(value))" : "--"
+  }
+
+  private func metricText(_ value: String) -> String {
+    model.hasRealMetrics ? value : "--"
   }
 }
 
@@ -151,13 +161,13 @@ struct PetView: View {
       GeometryReader { proxy in
         ScrollView {
           VStack(alignment: .leading, spacing: 16) {
-            HeaderBlock(title: "Shiba", subtitle: "Health companion")
+            HeaderBlock(title: "Shiba", subtitle: model.hasRealMetrics ? "Health companion" : "Waiting for WHOOP data")
 
             ShibaSceneView(state: state)
               .frame(height: sceneHeight(for: proxy.size))
               .clipShape(RoundedRectangle(cornerRadius: 8))
               .overlay(alignment: .topLeading) {
-                Text(state.label)
+                Text(model.hasRealMetrics ? state.label : "Waiting")
                   .font(.headline)
                   .padding(.horizontal, 12)
                   .padding(.vertical, 8)
@@ -178,13 +188,14 @@ struct PetView: View {
               ProgressView(value: Double(model.petScore), total: 100)
                 .tint(state.tint)
 
-              Text(state.message)
+              Text(model.hasRealMetrics ? state.message : "Connect WHOOP to let Shiba react to real recovery and activity.")
                 .foregroundStyle(.secondary)
             }
             .padding()
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
           }
           .padding(20)
+          .padding(.bottom, 88)
         }
       }
       .navigationTitle("Pet")
@@ -192,7 +203,7 @@ struct PetView: View {
   }
 
   private func sceneHeight(for size: CGSize) -> CGFloat {
-    min(max(size.height * 0.42, 360), 480)
+    min(max(size.height * 0.38, 320), 420)
   }
 }
 
@@ -213,12 +224,12 @@ struct PetMiniPanel: View {
         VStack(alignment: .leading, spacing: 4) {
           Text("Shiba vitality")
             .font(.headline)
-          Text(state.label)
+          Text(model.hasRealMetrics ? state.label : "Waiting for WHOOP")
             .font(.subheadline)
             .foregroundStyle(.secondary)
         }
         Spacer()
-        Text("\(model.petScore)")
+        Text(model.hasRealMetrics ? "\(model.petScore)" : "--")
           .font(.title.bold())
       }
       .padding()
@@ -383,6 +394,8 @@ struct ScoreCard: View {
   let title: String
   let value: String
   let suffix: String
+  let progress: Double?
+  let total: Double
   let tint: Color
 
   var body: some View {
@@ -398,8 +411,8 @@ struct ScoreCard: View {
           .font(.title3.bold())
           .foregroundStyle(.secondary)
       }
-      ProgressView(value: Double(value) ?? 0, total: suffix == "/21" ? 21 : 100)
-        .tint(tint)
+      ProgressView(value: progress ?? 0, total: total)
+        .tint(progress == nil ? .gray : tint)
     }
     .padding()
     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
@@ -537,14 +550,16 @@ struct ShibaSceneView: UIViewRepresentable {
   func makeUIView(context: Context) -> SCNView {
     let view = SCNView()
     view.backgroundColor = UIColor.systemBackground
-    view.allowsCameraControl = true
+    view.allowsCameraControl = false
     view.autoenablesDefaultLighting = false
     view.scene = makeScene()
+    view.pointOfView = view.scene?.rootNode.childNode(withName: "petCamera", recursively: false)
     return view
   }
 
   func updateUIView(_ view: SCNView, context: Context) {
     view.scene?.rootNode.childNode(withName: "petRoot", recursively: false)?.opacity = opacity
+    view.pointOfView = view.scene?.rootNode.childNode(withName: "petCamera", recursively: false)
   }
 
   private var opacity: CGFloat {
@@ -577,9 +592,10 @@ struct ShibaSceneView: UIViewRepresentable {
     }
 
     let camera = SCNNode()
+    camera.name = "petCamera"
     camera.camera = SCNCamera()
-    camera.camera?.fieldOfView = 42
-    camera.position = SCNVector3(0, 0.15, 3.6)
+    camera.camera?.fieldOfView = 38
+    camera.position = SCNVector3(0, 0.05, 5.8)
     scene.rootNode.addChildNode(camera)
 
     let keyLight = SCNNode()
@@ -605,7 +621,7 @@ struct ShibaSceneView: UIViewRepresentable {
     let depth = maximum.z - minimum.z
     let largest = Swift.max(width, Swift.max(height, depth))
     if largest > 0 {
-      let scale = 1.16 / largest
+      let scale = 0.68 / largest
       node.scale = SCNVector3(scale, scale, scale)
     }
     let center = SCNVector3(
@@ -614,7 +630,7 @@ struct ShibaSceneView: UIViewRepresentable {
       (minimum.z + maximum.z) / 2
     )
     node.pivot = SCNMatrix4MakeTranslation(center.x, center.y, center.z)
-    node.position = SCNVector3(0, -0.02, 0)
+    node.position = SCNVector3(0, -0.16, 0)
   }
 
   private func animate(node: SCNNode) {
