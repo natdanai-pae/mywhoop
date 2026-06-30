@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		02E8EEB5C48A81E78E286C3F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F7698329DDB5F07DC196CE1C /* Assets.xcassets */; };
 		0516141188F87BAE6B597DBB /* Shiba.usdz in Resources */ = {isa = PBXBuildFile; fileRef = 17CAF5C9F13F0B091538F5AE /* Shiba.usdz */; };
+		4E397E64EC2E9C577509862A /* JRTWalking.usdz in Resources */ = {isa = PBXBuildFile; fileRef = 8BA228C56D97C7E3D4A8D010 /* JRTWalking.usdz */; };
 		88FECFD0639E68C208ED0837 /* GenieMax in Frameworks */ = {isa = PBXBuildFile; productRef = 6F292395B09D1BB552297A43 /* GenieMax */; };
 		C5B547EF04DA49F3574A8981 /* GenieMaxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9B7252452838C0D24D8771 /* GenieMaxApp.swift */; };
 /* End PBXBuildFile section */
@@ -18,6 +19,7 @@
 		3BCEB1EAAEBE03B69B49B2BC /* PaeWhoop */ = {isa = PBXFileReference; lastKnownFileType = folder; name = PaeWhoop; path = ..; sourceTree = SOURCE_ROOT; };
 		63D8766EB4BA438455D32A0D /* GenieMaxiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = GenieMaxiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		72C5C5BE1CACE44DD556BA43 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		8BA228C56D97C7E3D4A8D010 /* JRTWalking.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = JRTWalking.usdz; sourceTree = "<group>"; };
 		F7698329DDB5F07DC196CE1C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		FD9B7252452838C0D24D8771 /* GenieMaxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenieMaxApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -37,6 +39,7 @@
 		3FDFDC44AA5577025C577259 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				8BA228C56D97C7E3D4A8D010 /* JRTWalking.usdz */,
 				17CAF5C9F13F0B091538F5AE /* Shiba.usdz */,
 			);
 			path = Resources;
@@ -144,6 +147,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				02E8EEB5C48A81E78E286C3F /* Assets.xcassets in Resources */,
+				4E397E64EC2E9C577509862A /* JRTWalking.usdz in Resources */,
 				0516141188F87BAE6B597DBB /* Shiba.usdz in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -225,7 +229,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = YG7X8EC59V;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				INFOPLIST_FILE = GenieMaxApp/Info.plist;
@@ -249,7 +253,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = YG7X8EC59V;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				INFOPLIST_FILE = GenieMaxApp/Info.plist;

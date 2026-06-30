@@ -167,9 +167,9 @@ struct PetView: View {
       GeometryReader { proxy in
         ScrollView {
           VStack(alignment: .leading, spacing: 16) {
-            HeaderBlock(title: "Shiba", subtitle: model.hasRealMetrics ? "Health companion" : "Waiting for WHOOP data")
+            HeaderBlock(title: "Jack Russell", subtitle: model.hasRealMetrics ? "Health companion" : "Waiting for WHOOP data")
 
-            ShibaSceneView(state: state)
+            PetSceneView(state: state)
               .frame(height: sceneHeight(for: proxy.size))
               .clipShape(RoundedRectangle(cornerRadius: 8))
               .overlay(alignment: .topLeading) {
@@ -180,11 +180,11 @@ struct PetView: View {
                   .background(.thinMaterial, in: Capsule())
                   .padding(14)
               }
-              .accessibilityLabel("Shiba companion")
+              .accessibilityLabel("Jack Russell companion")
 
             VStack(alignment: .leading, spacing: 14) {
               HStack(alignment: .lastTextBaseline) {
-                Text("Shiba vitality")
+                Text("Jack Russell vitality")
                   .font(.title2.bold())
                 Spacer()
                 Text("\(model.petScore)")
@@ -194,7 +194,7 @@ struct PetView: View {
               ProgressView(value: Double(model.petScore), total: 100)
                 .tint(state.tint)
 
-              Text(model.hasRealMetrics ? state.message : "Connect WHOOP to let Shiba react to real recovery and activity.")
+              Text(model.hasRealMetrics ? state.message : "Connect WHOOP to let your Jack Russell react to real recovery and activity.")
                 .foregroundStyle(.secondary)
             }
             .padding()
@@ -228,7 +228,7 @@ struct PetMiniPanel: View {
           .frame(width: 42, height: 42)
           .background(state.tint.opacity(0.14), in: Circle())
         VStack(alignment: .leading, spacing: 4) {
-          Text("Shiba vitality")
+          Text("Jack Russell vitality")
             .font(.headline)
           Text(model.hasRealMetrics ? state.label : "Waiting for WHOOP")
             .font(.subheadline)
@@ -539,13 +539,13 @@ enum PetState {
   var message: String {
     switch self {
     case .thriving:
-      return "Shiba looks bright today. Keep the streak going."
+      return "Your Jack Russell looks bright today. Keep the streak going."
     case .steady:
-      return "Shiba is doing okay. A little movement and sleep will help."
+      return "Your Jack Russell is doing okay. A little movement and sleep will help."
     case .tired:
-      return "Shiba feels low energy. Recovery matters today."
+      return "Your Jack Russell feels low energy. Recovery matters today."
     case .fragile:
-      return "Shiba needs care. Rest, hydrate, and take it gently."
+      return "Your Jack Russell needs care. Rest, hydrate, and take it gently."
     }
   }
 
@@ -563,7 +563,7 @@ enum PetState {
   }
 }
 
-struct ShibaSceneView: UIViewRepresentable {
+struct PetSceneView: UIViewRepresentable {
   let state: PetState
 
   func makeUIView(context: Context) -> SCNView {
@@ -600,12 +600,13 @@ struct ShibaSceneView: UIViewRepresentable {
     petRoot.name = "petRoot"
     petRoot.opacity = opacity
 
-    if let url = Bundle.main.url(forResource: "Shiba", withExtension: "usdz"),
-       let shibaScene = try? SCNScene(url: url) {
-      for node in shibaScene.rootNode.childNodes {
+    if let url = Bundle.main.url(forResource: "JRTWalking", withExtension: "usdz"),
+       let petScene = try? SCNScene(url: url) {
+      for node in petScene.rootNode.childNodes {
         petRoot.addChildNode(node)
       }
       fit(node: petRoot)
+      loopEmbeddedAnimations(in: petRoot)
       animate(node: petRoot)
       scene.rootNode.addChildNode(petRoot)
     }
@@ -674,6 +675,16 @@ struct ShibaSceneView: UIViewRepresentable {
 
     node.runAction(.repeatForever(.sequence([breatheUp, breatheDown])), forKey: "breathing")
     node.runAction(.repeatForever(.sequence([lookLeft, lookRight, lookCenter])), forKey: "lookingAround")
+  }
+
+  private func loopEmbeddedAnimations(in node: SCNNode) {
+    for key in node.animationKeys {
+      guard let player = node.animationPlayer(forKey: key) else { continue }
+      player.animation.repeatCount = .infinity
+      player.animation.isRemovedOnCompletion = false
+      player.play()
+    }
+    node.childNodes.forEach { loopEmbeddedAnimations(in: $0) }
   }
 }
 
