@@ -608,6 +608,7 @@ struct PetSceneView: UIViewRepresentable {
         petRoot.addChildNode(node)
       }
       fit(node: petRoot)
+      petRoot.eulerAngles.y = .pi
       animateAnchoredIdle(node: petRoot)
       scene.rootNode.addChildNode(petRoot)
     }
