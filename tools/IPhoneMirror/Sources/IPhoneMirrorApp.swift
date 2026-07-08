@@ -175,6 +175,8 @@ final class MirrorModel: ObservableObject {
 final class WDAControlModel: ObservableObject {
   @Published var enabled = false
   @Published var status = "Control Off"
+  @Published var debugPoint: CGPoint?
+  @Published var debugText = ""
 
   private let baseURL = URL(string: "http://127.0.0.1:8100")!
   private var sessionID: String?
@@ -190,6 +192,7 @@ final class WDAControlModel: ObservableObject {
 
   func tap(normalized point: CGPoint) {
     guard enabled else { return }
+    showDebug(point, label: "tap")
     Task {
       await ensureConnected()
       guard let sessionID else { return }
@@ -204,6 +207,7 @@ final class WDAControlModel: ObservableObject {
 
   func swipe(from start: CGPoint, to end: CGPoint) {
     guard enabled else { return }
+    showDebug(end, label: "swipe")
     Task {
       await ensureConnected()
       guard let sessionID else { return }
@@ -243,9 +247,15 @@ final class WDAControlModel: ObservableObject {
       await updateScreenSize()
       status = "Control On: WDA ready"
     } catch {
-      enabled = false
-      status = "WDA ไม่พร้อม: รัน WebDriverAgent ที่ port 8100 ก่อน"
+      sessionID = nil
+      status = "WDA ไม่พร้อม แต่ debug click ยังเปิดอยู่"
     }
+  }
+
+  private func showDebug(_ point: CGPoint, label: String) {
+    debugPoint = point
+    debugText = "\(label) x \(String(format: "%.3f", point.x)) y \(String(format: "%.3f", point.y))"
+    status = "Mouse \(debugText)"
   }
 
   private func ensureConnected() async {
@@ -325,6 +335,27 @@ struct ContentView: View {
         onSwipe: { control.swipe(from: $0, to: $1) }
       )
       .ignoresSafeArea()
+
+      if control.enabled, let point = control.debugPoint {
+        GeometryReader { proxy in
+          let x = proxy.size.width * point.x
+          let y = proxy.size.height * point.y
+          ZStack(alignment: .topLeading) {
+            Circle()
+              .stroke(.cyan, lineWidth: 3)
+              .frame(width: 34, height: 34)
+              .position(x: x, y: y)
+            Text(control.debugText)
+              .font(.caption.monospacedDigit())
+              .padding(.horizontal, 8)
+              .padding(.vertical, 5)
+              .background(.black.opacity(0.75), in: Capsule())
+              .foregroundStyle(.cyan)
+              .position(x: min(max(x, 95), proxy.size.width - 95), y: min(y + 34, proxy.size.height - 20))
+          }
+        }
+        .allowsHitTesting(false)
+      }
 
       if !theaterMode && showControls {
         VStack(spacing: 0) {
@@ -541,6 +572,10 @@ final class PreviewContainerView: NSView {
 
   required init?(coder: NSCoder) {
     fatalError("init(coder:) has not been implemented")
+  }
+
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+    true
   }
 
   override func layout() {
