@@ -187,10 +187,20 @@ final class WDAControlModel: ObservableObject {
   private var sessionID: String?
 
   func toggle() {
-    enabled.toggle()
-    status = enabled ? "กำลังต่อ WDA..." : "Control Off"
     if enabled {
-      Task { await connect() }
+      enabled = false
+      sessionID = nil
+      status = "Control Off"
+      return
+    }
+
+    enabled = true
+    status = "กำลังต่อ WDA..."
+    Task {
+      let ready = await connect()
+      if !ready {
+        enabled = false
+      }
     }
   }
 
@@ -198,14 +208,15 @@ final class WDAControlModel: ObservableObject {
     guard enabled else { return }
     showDebug(point, label: "tap")
     Task {
-      await ensureConnected()
-      guard let sessionID else { return }
+      guard await ensureConnected(), let sessionID else { return }
       let point = devicePoint(from: point)
-      await post("/session/\(sessionID)/wda/tap", body: [
+      let sent = await post("/session/\(sessionID)/wda/tap", body: [
         "x": point.x,
         "y": point.y
       ])
-      status = "Tap \(Int(point.x)), \(Int(point.y))"
+      if sent != nil {
+        status = "Tap \(Int(point.x)), \(Int(point.y))"
+      }
     }
   }
 
@@ -213,22 +224,24 @@ final class WDAControlModel: ObservableObject {
     guard enabled else { return }
     showDebug(end, label: "swipe")
     Task {
-      await ensureConnected()
-      guard let sessionID else { return }
+      guard await ensureConnected(), let sessionID else { return }
       let start = devicePoint(from: start)
       let end = devicePoint(from: end)
-      await post("/session/\(sessionID)/wda/dragfromtoforduration", body: [
+      let sent = await post("/session/\(sessionID)/wda/dragfromtoforduration", body: [
         "duration": 0.12,
         "fromX": start.x,
         "fromY": start.y,
         "toX": end.x,
         "toY": end.y
       ])
-      status = "Swipe \(Int(start.x)),\(Int(start.y)) -> \(Int(end.x)),\(Int(end.y))"
+      if sent != nil {
+        status = "Swipe \(Int(start.x)),\(Int(start.y)) -> \(Int(end.x)),\(Int(end.y))"
+      }
     }
   }
 
-  private func connect() async {
+  private func connect() async -> Bool {
+    var lastError = "unknown"
     for candidate in baseURLCandidates {
       do {
         baseURL = candidate
@@ -252,12 +265,14 @@ final class WDAControlModel: ObservableObject {
 
         await updateScreenSize()
         status = "Control On: WDA ready via \(candidate.host ?? "localhost")"
-        return
+        return true
       } catch {
         sessionID = nil
+        lastError = error.localizedDescription
       }
     }
-    status = "WDA ไม่พร้อม แต่ debug click ยังเปิดอยู่"
+    status = "Control ใช้ไม่ได้: เปิด WDA ก่อน (\(lastError))"
+    return false
   }
 
   private func showDebug(_ point: CGPoint, label: String) {
@@ -266,10 +281,11 @@ final class WDAControlModel: ObservableObject {
     status = "Mouse \(debugText)"
   }
 
-  private func ensureConnected() async {
+  private func ensureConnected() async -> Bool {
     if sessionID == nil {
-      await connect()
+      return await connect()
     }
+    return true
   }
 
   private func updateScreenSize() async {

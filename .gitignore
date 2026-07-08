@@ -19,6 +19,10 @@ backend/node_modules/
 backend/.wrangler/
 backend/dist/
 
+# Local IPhoneMirror runtime logs
+tools/IPhoneMirror/*.log
+tools/IPhoneMirror/*.pid
+
 # Local secrets / config (never commit)
 *.env
 .env
