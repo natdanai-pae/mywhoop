@@ -174,7 +174,6 @@ struct ContentView: View {
   @StateObject private var model = MirrorModel()
   @State private var theaterMode = false
   @State private var ratioMode = "Fill"
-  @State private var widthScale = 1.0
   @State private var rotationDegrees = 0.0
   @State private var showControls = true
 
@@ -183,7 +182,6 @@ struct ContentView: View {
       PreviewView(
         session: model.session,
         videoGravity: videoGravity,
-        widthScale: widthScale,
         rotationDegrees: rotationDegrees
       )
       .ignoresSafeArea()
@@ -226,24 +224,6 @@ struct ContentView: View {
               rotatePreview()
             }
             .keyboardShortcut("r", modifiers: [])
-
-            HStack(spacing: 8) {
-              Text("Width")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-              Button("-") {
-                adjustWidth(-0.05)
-              }
-              Slider(value: $widthScale, in: 0.65...1.85, step: 0.01)
-                .frame(width: 110)
-              Button("+") {
-                adjustWidth(0.05)
-              }
-              Text(String(format: "%.2fx", widthScale))
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 52, alignment: .trailing)
-            }
 
             Button("Fullscreen") {
               toggleTheaterMode()
@@ -300,21 +280,7 @@ struct ContentView: View {
             Text("\(Int(rotationDegrees))°")
               .font(.callout.monospacedDigit())
               .frame(width: 44)
-            Divider()
-              .frame(height: 20)
-            Text("W")
-              .font(.callout.bold())
-            Button("-") {
-              adjustWidth(-0.05)
-            }
-            Text(String(format: "%.2fx", widthScale))
-              .font(.callout.monospacedDigit())
-              .frame(width: 52)
-            Button("+") {
-              adjustWidth(0.05)
-            }
             Button("Reset") {
-              widthScale = 1.0
               rotationDegrees = 0
             }
             Button("Hide") {
@@ -361,10 +327,6 @@ struct ContentView: View {
     }
   }
 
-  private func adjustWidth(_ delta: Double) {
-    widthScale = min(1.85, max(0.65, widthScale + delta))
-  }
-
   private func rotatePreview() {
     rotationDegrees = rotationDegrees >= 270 ? 0 : rotationDegrees + 90
   }
@@ -383,14 +345,12 @@ struct ContentView: View {
 struct PreviewView: NSViewRepresentable {
   let session: AVCaptureSession
   let videoGravity: AVLayerVideoGravity
-  let widthScale: Double
   let rotationDegrees: Double
 
   func makeNSView(context: Context) -> PreviewContainerView {
     let view = PreviewContainerView()
     view.previewLayer.session = session
     view.previewLayer.videoGravity = videoGravity
-    view.widthScale = widthScale
     view.rotationDegrees = rotationDegrees
     return view
   }
@@ -398,18 +358,12 @@ struct PreviewView: NSViewRepresentable {
   func updateNSView(_ nsView: PreviewContainerView, context: Context) {
     nsView.previewLayer.session = session
     nsView.previewLayer.videoGravity = videoGravity
-    nsView.widthScale = widthScale
     nsView.rotationDegrees = rotationDegrees
   }
 }
 
 final class PreviewContainerView: NSView {
   let previewLayer = AVCaptureVideoPreviewLayer()
-  var widthScale = 1.0 {
-    didSet {
-      needsLayout = true
-    }
-  }
   var rotationDegrees = 0.0 {
     didSet {
       needsLayout = true
@@ -435,8 +389,6 @@ final class PreviewContainerView: NSView {
     previewLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
     previewLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
     let radians = CGFloat(rotationDegrees * .pi / 180)
-    let transform = CGAffineTransform(rotationAngle: radians)
-      .scaledBy(x: widthScale, y: 1.0)
-    previewLayer.setAffineTransform(transform)
+    previewLayer.setAffineTransform(CGAffineTransform(rotationAngle: radians))
   }
 }
