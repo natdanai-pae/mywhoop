@@ -176,6 +176,7 @@ struct ContentView: View {
   @State private var ratioMode = "Fill"
   @State private var zoom = 1.0
   @State private var widthScale = 1.0
+  @State private var showControls = true
 
   var body: some View {
     ZStack {
@@ -187,7 +188,7 @@ struct ContentView: View {
       )
       .ignoresSafeArea()
 
-      if !theaterMode {
+      if !theaterMode && showControls {
         VStack(spacing: 0) {
           HStack(spacing: 12) {
             Text("iPhone USB Mirror")
@@ -259,6 +260,11 @@ struct ContentView: View {
             }
             .keyboardShortcut("f", modifiers: [.command, .control])
 
+            Button("Hide") {
+              showControls = false
+            }
+            .keyboardShortcut("c", modifiers: [])
+
             Button(model.isRunning ? "Stop" : "Start Mirror") {
               model.isRunning ? model.stop() : model.start()
             }
@@ -282,7 +288,7 @@ struct ContentView: View {
         }
       }
 
-      if theaterMode {
+      if theaterMode && showControls {
         VStack {
           Spacer()
           HStack(spacing: 10) {
@@ -323,12 +329,32 @@ struct ContentView: View {
               zoom = 1.0
               widthScale = 1.0
             }
+            Button("Hide") {
+              showControls = false
+            }
+            .keyboardShortcut("c", modifiers: [])
           }
           .buttonStyle(.bordered)
           .padding(.horizontal, 14)
           .padding(.vertical, 10)
           .background(.black.opacity(0.55), in: Capsule())
           .padding(.bottom, 24)
+        }
+      }
+
+      if !showControls {
+        VStack {
+          Spacer()
+          HStack {
+            Button("Controls") {
+              showControls = true
+            }
+            .keyboardShortcut("c", modifiers: [])
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .padding(12)
+            Spacer()
+          }
         }
       }
     }
