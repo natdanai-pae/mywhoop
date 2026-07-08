@@ -56,7 +56,7 @@ final class MirrorModel: ObservableObject {
     }
 
     selectedDeviceID = preferredIPhoneDevice()?.uniqueID ?? devices.first?.uniqueID
-    status = devices.isEmpty ? "ยังไม่เจอจอ iPhone: เสียบ USB, ปลดล็อก, กด Trust แล้วลอง QuickTime > New Movie Recording" : "เจอ iPhone screen แล้ว กด Start Mirror"
+    status = devices.isEmpty ? "ยังไม่เจอจอ iPhone: เสียบ USB, ปลดล็อก, กด Trust แล้วลอง QuickTime > New Movie Recording" : "เจอ iPhone screen \(devices.count) รายการ แล้วกด Start Mirror"
   }
 
   func start() {

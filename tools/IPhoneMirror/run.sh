@@ -3,6 +3,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 xcodegen generate
-xcodebuild -project IPhoneMirror.xcodeproj -scheme IPhoneMirror -configuration Debug -destination 'platform=macOS' build
-APP_PATH="$(find "$HOME/Library/Developer/Xcode/DerivedData" -path '*/Build/Products/Debug/IPhoneMirror.app' -print -quit)"
+xcodebuild \
+  -project IPhoneMirror.xcodeproj \
+  -scheme IPhoneMirror \
+  -configuration Debug \
+  -destination 'platform=macOS' \
+  -derivedDataPath build/DerivedData \
+  build
+APP_PATH="$PWD/build/DerivedData/Build/Products/Debug/IPhoneMirror.app"
+killall IPhoneMirror 2>/dev/null || true
 open "$APP_PATH"
