@@ -10,10 +10,12 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - Sources
+      - Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.pae.whoop.iphonemirror
         PRODUCT_NAME: IPhoneMirror
         INFOPLIST_FILE: Sources/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
         ENABLE_USER_SCRIPT_SANDBOXING: "YES"

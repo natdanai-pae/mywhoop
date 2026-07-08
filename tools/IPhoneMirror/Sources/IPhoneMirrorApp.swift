@@ -328,7 +328,7 @@ struct ContentView: View {
   @StateObject private var model = MirrorModel()
   @StateObject private var control = WDAControlModel()
   @State private var theaterMode = false
-  @State private var ratioMode = "Fill"
+  @State private var ratioMode = "Fit"
   @State private var rotationDegrees = 0.0
   @State private var showControls = true
   @State private var gestureStart: CGPoint?
