@@ -175,13 +175,15 @@ struct ContentView: View {
   @State private var theaterMode = false
   @State private var ratioMode = "Fill"
   @State private var zoom = 1.0
+  @State private var widthScale = 1.0
 
   var body: some View {
     ZStack {
       PreviewView(
         session: model.session,
         videoGravity: videoGravity,
-        zoom: zoom
+        zoom: zoom,
+        widthScale: widthScale
       )
       .ignoresSafeArea()
 
@@ -229,6 +231,24 @@ struct ContentView: View {
                 adjustZoom(0.05)
               }
               Text(String(format: "%.2fx", zoom))
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .trailing)
+            }
+
+            HStack(spacing: 8) {
+              Text("Width")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+              Button("-") {
+                adjustWidth(-0.05)
+              }
+              Slider(value: $widthScale, in: 0.65...1.85, step: 0.01)
+                .frame(width: 110)
+              Button("+") {
+                adjustWidth(0.05)
+              }
+              Text(String(format: "%.2fx", widthScale))
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(width: 52, alignment: .trailing)
@@ -286,6 +306,23 @@ struct ContentView: View {
             Button("+") {
               adjustZoom(0.05)
             }
+            Divider()
+              .frame(height: 20)
+            Text("W")
+              .font(.callout.bold())
+            Button("-") {
+              adjustWidth(-0.05)
+            }
+            Text(String(format: "%.2fx", widthScale))
+              .font(.callout.monospacedDigit())
+              .frame(width: 52)
+            Button("+") {
+              adjustWidth(0.05)
+            }
+            Button("Reset") {
+              zoom = 1.0
+              widthScale = 1.0
+            }
           }
           .buttonStyle(.bordered)
           .padding(.horizontal, 14)
@@ -314,6 +351,10 @@ struct ContentView: View {
     zoom = min(1.75, max(0.75, zoom + delta))
   }
 
+  private func adjustWidth(_ delta: Double) {
+    widthScale = min(1.85, max(0.65, widthScale + delta))
+  }
+
   private func toggleTheaterMode() {
     theaterMode.toggle()
     if theaterMode {
@@ -329,12 +370,14 @@ struct PreviewView: NSViewRepresentable {
   let session: AVCaptureSession
   let videoGravity: AVLayerVideoGravity
   let zoom: Double
+  let widthScale: Double
 
   func makeNSView(context: Context) -> PreviewContainerView {
     let view = PreviewContainerView()
     view.previewLayer.session = session
     view.previewLayer.videoGravity = videoGravity
     view.zoom = zoom
+    view.widthScale = widthScale
     return view
   }
 
@@ -342,12 +385,18 @@ struct PreviewView: NSViewRepresentable {
     nsView.previewLayer.session = session
     nsView.previewLayer.videoGravity = videoGravity
     nsView.zoom = zoom
+    nsView.widthScale = widthScale
   }
 }
 
 final class PreviewContainerView: NSView {
   let previewLayer = AVCaptureVideoPreviewLayer()
   var zoom = 1.0 {
+    didSet {
+      needsLayout = true
+    }
+  }
+  var widthScale = 1.0 {
     didSet {
       needsLayout = true
     }
@@ -371,6 +420,6 @@ final class PreviewContainerView: NSView {
     previewLayer.frame = bounds
     previewLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
     previewLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
-    previewLayer.setAffineTransform(CGAffineTransform(scaleX: zoom, y: zoom))
+    previewLayer.setAffineTransform(CGAffineTransform(scaleX: zoom * widthScale, y: zoom))
   }
 }
