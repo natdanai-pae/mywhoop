@@ -18,4 +18,5 @@ xcodebuild \
   -destination "id=$DEVICE_ID" \
   DEVELOPMENT_TEAM="$TEAM_ID" \
   CODE_SIGN_STYLE=Automatic \
+  -allowProvisioningUpdates \
   test

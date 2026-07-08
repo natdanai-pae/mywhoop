@@ -323,16 +323,14 @@ struct ContentView: View {
   @State private var ratioMode = "Fill"
   @State private var rotationDegrees = 0.0
   @State private var showControls = true
+  @State private var gestureStart: CGPoint?
 
   var body: some View {
     ZStack {
       PreviewView(
         session: model.session,
         videoGravity: videoGravity,
-        rotationDegrees: rotationDegrees,
-        controlEnabled: control.enabled,
-        onTap: { control.tap(normalized: $0) },
-        onSwipe: { control.swipe(from: $0, to: $1) }
+        rotationDegrees: rotationDegrees
       )
       .ignoresSafeArea()
 
@@ -491,7 +489,41 @@ struct ContentView: View {
       }
     }
     .background(.black)
+    .contentShape(Rectangle())
+    .simultaneousGesture(controlGesture)
     .keyboardShortcut("f", modifiers: [.command, .control])
+  }
+
+  private var controlGesture: some Gesture {
+    DragGesture(minimumDistance: 0, coordinateSpace: .local)
+      .onChanged { value in
+        guard control.enabled else { return }
+        if gestureStart == nil {
+          gestureStart = normalizedPoint(value.startLocation)
+        }
+      }
+      .onEnded { value in
+        guard control.enabled else { return }
+        let start = gestureStart ?? normalizedPoint(value.startLocation)
+        let end = normalizedPoint(value.location)
+        gestureStart = nil
+        let distance = hypot(end.x - start.x, end.y - start.y)
+        if distance < 0.025 {
+          control.tap(normalized: end)
+        } else {
+          control.swipe(from: start, to: end)
+        }
+      }
+  }
+
+  private func normalizedPoint(_ location: CGPoint) -> CGPoint {
+    guard let window = NSApp.keyWindow else { return .zero }
+    let width = max(window.contentView?.bounds.width ?? 1, 1)
+    let height = max(window.contentView?.bounds.height ?? 1, 1)
+    return CGPoint(
+      x: max(0, min(1, location.x / width)),
+      y: max(0, min(1, location.y / height))
+    )
   }
 
   private var videoGravity: AVLayerVideoGravity {
@@ -524,18 +556,12 @@ struct PreviewView: NSViewRepresentable {
   let session: AVCaptureSession
   let videoGravity: AVLayerVideoGravity
   let rotationDegrees: Double
-  let controlEnabled: Bool
-  let onTap: (CGPoint) -> Void
-  let onSwipe: (CGPoint, CGPoint) -> Void
 
   func makeNSView(context: Context) -> PreviewContainerView {
     let view = PreviewContainerView()
     view.previewLayer.session = session
     view.previewLayer.videoGravity = videoGravity
     view.rotationDegrees = rotationDegrees
-    view.controlEnabled = controlEnabled
-    view.onTap = onTap
-    view.onSwipe = onSwipe
     return view
   }
 
@@ -543,18 +569,11 @@ struct PreviewView: NSViewRepresentable {
     nsView.previewLayer.session = session
     nsView.previewLayer.videoGravity = videoGravity
     nsView.rotationDegrees = rotationDegrees
-    nsView.controlEnabled = controlEnabled
-    nsView.onTap = onTap
-    nsView.onSwipe = onSwipe
   }
 }
 
 final class PreviewContainerView: NSView {
   let previewLayer = AVCaptureVideoPreviewLayer()
-  var controlEnabled = false
-  var onTap: ((CGPoint) -> Void)?
-  var onSwipe: ((CGPoint, CGPoint) -> Void)?
-  private var dragStart: CGPoint?
   var rotationDegrees = 0.0 {
     didSet {
       needsLayout = true
@@ -585,40 +604,5 @@ final class PreviewContainerView: NSView {
     previewLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
     let radians = CGFloat(rotationDegrees * .pi / 180)
     previewLayer.setAffineTransform(CGAffineTransform(rotationAngle: radians))
-  }
-
-  override func mouseDown(with event: NSEvent) {
-    guard controlEnabled else {
-      super.mouseDown(with: event)
-      return
-    }
-    dragStart = normalizedPoint(from: event)
-  }
-
-  override func mouseUp(with event: NSEvent) {
-    guard controlEnabled else {
-      super.mouseUp(with: event)
-      return
-    }
-    let end = normalizedPoint(from: event)
-    guard let start = dragStart else {
-      onTap?(end)
-      return
-    }
-    dragStart = nil
-    let distance = hypot(end.x - start.x, end.y - start.y)
-    if distance < 0.025 {
-      onTap?(end)
-    } else {
-      onSwipe?(start, end)
-    }
-  }
-
-  private func normalizedPoint(from event: NSEvent) -> CGPoint {
-    let local = convert(event.locationInWindow, from: nil)
-    guard bounds.width > 0, bounds.height > 0 else { return .zero }
-    let x = max(0, min(1, local.x / bounds.width))
-    let y = max(0, min(1, 1 - (local.y / bounds.height)))
-    return CGPoint(x: x, y: y)
   }
 }
