@@ -172,71 +172,99 @@ final class MirrorModel: ObservableObject {
 
 struct ContentView: View {
   @StateObject private var model = MirrorModel()
+  @State private var theaterMode = false
 
   var body: some View {
-    VStack(spacing: 0) {
-      HStack(spacing: 12) {
-        Text("iPhone USB Mirror")
-          .font(.title2.bold())
+    ZStack {
+      PreviewView(
+        session: model.session,
+        videoGravity: theaterMode ? .resizeAspectFill : .resizeAspect
+      )
+      .ignoresSafeArea()
 
-        Spacer()
+      if !theaterMode {
+        VStack(spacing: 0) {
+          HStack(spacing: 12) {
+            Text("iPhone USB Mirror")
+              .font(.title2.bold())
 
-        Picker("Device", selection: $model.selectedDeviceID) {
-          if model.devices.isEmpty {
-            Text("No iPhone screen").tag(Optional<String>.none)
+            Spacer()
+
+            Picker("Device", selection: $model.selectedDeviceID) {
+              if model.devices.isEmpty {
+                Text("No iPhone screen").tag(Optional<String>.none)
+              }
+              ForEach(model.devices, id: \.uniqueID) { device in
+                Text(device.localizedName).tag(Optional(device.uniqueID))
+              }
+            }
+            .frame(width: 260)
+
+            Button("Refresh") {
+              model.refreshDevices()
+            }
+
+            Button(model.audioEnabled ? "Audio On" : "Audio Off") {
+              model.toggleAudio()
+            }
+
+            Button("Fullscreen") {
+              toggleTheaterMode()
+            }
+            .keyboardShortcut("f", modifiers: [.command, .control])
+
+            Button(model.isRunning ? "Stop" : "Start Mirror") {
+              model.isRunning ? model.stop() : model.start()
+            }
+            .keyboardShortcut(.defaultAction)
           }
-          ForEach(model.devices, id: \.uniqueID) { device in
-            Text(device.localizedName).tag(Optional(device.uniqueID))
+          .padding()
+          .background(.regularMaterial)
+
+          Spacer()
+
+          HStack {
+            Text(model.status)
+              .font(.callout)
+              .padding(.horizontal, 12)
+              .padding(.vertical, 8)
+              .background(.black.opacity(0.65), in: Capsule())
+              .foregroundStyle(.white)
+              .padding()
+            Spacer()
           }
         }
-        .frame(width: 260)
-
-        Button("Refresh") {
-          model.refreshDevices()
-        }
-
-        Button(model.audioEnabled ? "Audio On" : "Audio Off") {
-          model.toggleAudio()
-        }
-
-        Button("Fullscreen") {
-          NSApp.keyWindow?.toggleFullScreen(nil)
-        }
-        .keyboardShortcut("f", modifiers: [.command, .control])
-
-        Button(model.isRunning ? "Stop" : "Start Mirror") {
-          model.isRunning ? model.stop() : model.start()
-        }
-        .keyboardShortcut(.defaultAction)
       }
-      .padding()
-      .background(.regularMaterial)
-
-      PreviewView(session: model.session)
-        .overlay(alignment: .bottomLeading) {
-          Text(model.status)
-            .font(.callout)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.black.opacity(0.65), in: Capsule())
-            .foregroundStyle(.white)
-            .padding()
-        }
     }
+    .background(.black)
+    .keyboardShortcut("f", modifiers: [.command, .control])
+  }
+
+  private func toggleTheaterMode() {
+    theaterMode.toggle()
+    if theaterMode {
+      NSApp.presentationOptions.insert([.autoHideDock, .autoHideMenuBar])
+    } else {
+      NSApp.presentationOptions.remove([.autoHideDock, .autoHideMenuBar])
+    }
+    NSApp.keyWindow?.toggleFullScreen(nil)
   }
 }
 
 struct PreviewView: NSViewRepresentable {
   let session: AVCaptureSession
+  let videoGravity: AVLayerVideoGravity
 
   func makeNSView(context: Context) -> PreviewContainerView {
     let view = PreviewContainerView()
     view.previewLayer.session = session
+    view.previewLayer.videoGravity = videoGravity
     return view
   }
 
   func updateNSView(_ nsView: PreviewContainerView, context: Context) {
     nsView.previewLayer.session = session
+    nsView.previewLayer.videoGravity = videoGravity
   }
 }
 
