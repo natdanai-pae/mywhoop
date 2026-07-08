@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreMediaIO
+import CoreGraphics
 import SwiftUI
 
 @main
@@ -170,8 +171,144 @@ final class MirrorModel: ObservableObject {
   }
 }
 
+@MainActor
+final class WDAControlModel: ObservableObject {
+  @Published var enabled = false
+  @Published var status = "Control Off"
+
+  private let baseURL = URL(string: "http://127.0.0.1:8100")!
+  private var sessionID: String?
+  private var screenSize = CGSize(width: 430, height: 932)
+
+  func toggle() {
+    enabled.toggle()
+    status = enabled ? "กำลังต่อ WDA..." : "Control Off"
+    if enabled {
+      Task { await connect() }
+    }
+  }
+
+  func tap(normalized point: CGPoint) {
+    guard enabled else { return }
+    Task {
+      await ensureConnected()
+      guard let sessionID else { return }
+      let point = devicePoint(from: point)
+      await post("/session/\(sessionID)/wda/tap/0", body: [
+        "x": point.x,
+        "y": point.y
+      ])
+      status = "Tap \(Int(point.x)), \(Int(point.y))"
+    }
+  }
+
+  func swipe(from start: CGPoint, to end: CGPoint) {
+    guard enabled else { return }
+    Task {
+      await ensureConnected()
+      guard let sessionID else { return }
+      let start = devicePoint(from: start)
+      let end = devicePoint(from: end)
+      await post("/session/\(sessionID)/wda/dragfromtoforduration", body: [
+        "duration": 0.12,
+        "fromX": start.x,
+        "fromY": start.y,
+        "toX": end.x,
+        "toY": end.y
+      ])
+      status = "Swipe \(Int(start.x)),\(Int(start.y)) -> \(Int(end.x)),\(Int(end.y))"
+    }
+  }
+
+  private func connect() async {
+    do {
+      let statusJSON = try await requestJSON("/status", method: "GET")
+      if let value = statusJSON["value"] as? [String: Any],
+         let message = value["message"] as? String {
+        status = "WDA: \(message)"
+      }
+
+      let sessionJSON = try await requestJSON(
+        "/session",
+        method: "POST",
+        body: ["capabilities": ["alwaysMatch": [:]]]
+      )
+      if let value = sessionJSON["value"] as? [String: Any],
+         let id = value["sessionId"] as? String {
+        sessionID = id
+      } else if let id = sessionJSON["sessionId"] as? String {
+        sessionID = id
+      }
+
+      await updateScreenSize()
+      status = "Control On: WDA ready"
+    } catch {
+      enabled = false
+      status = "WDA ไม่พร้อม: รัน WebDriverAgent ที่ port 8100 ก่อน"
+    }
+  }
+
+  private func ensureConnected() async {
+    if sessionID == nil {
+      await connect()
+    }
+  }
+
+  private func updateScreenSize() async {
+    guard let sessionID else { return }
+    do {
+      let json = try await requestJSON("/session/\(sessionID)/window/size", method: "GET")
+      if let value = json["value"] as? [String: Any],
+         let width = number(value["width"]),
+         let height = number(value["height"]) {
+        screenSize = CGSize(width: width, height: height)
+      }
+    } catch {
+      status = "ต่อ WDA ได้ แต่ยังอ่านขนาดจอไม่ได้"
+    }
+  }
+
+  @discardableResult
+  private func post(_ path: String, body: [String: Any]) async -> [String: Any]? {
+    do {
+      return try await requestJSON(path, method: "POST", body: body)
+    } catch {
+      status = "ส่งคำสั่งไม่สำเร็จ: \(error.localizedDescription)"
+      return nil
+    }
+  }
+
+  private func requestJSON(_ path: String, method: String, body: [String: Any]? = nil) async throws -> [String: Any] {
+    var request = URLRequest(url: baseURL.appendingPathComponent(path))
+    request.httpMethod = method
+    request.timeoutInterval = 3
+    if let body {
+      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      request.httpBody = try JSONSerialization.data(withJSONObject: body)
+    }
+    let (data, _) = try await URLSession.shared.data(for: request)
+    let object = try JSONSerialization.jsonObject(with: data)
+    return object as? [String: Any] ?? [:]
+  }
+
+  private func devicePoint(from normalized: CGPoint) -> CGPoint {
+    CGPoint(
+      x: max(0, min(screenSize.width, normalized.x * screenSize.width)),
+      y: max(0, min(screenSize.height, normalized.y * screenSize.height))
+    )
+  }
+
+  private func number(_ value: Any?) -> CGFloat? {
+    if let value = value as? CGFloat { return value }
+    if let value = value as? Double { return CGFloat(value) }
+    if let value = value as? Int { return CGFloat(value) }
+    return nil
+  }
+}
+
 struct ContentView: View {
   @StateObject private var model = MirrorModel()
+  @StateObject private var control = WDAControlModel()
   @State private var theaterMode = false
   @State private var ratioMode = "Fill"
   @State private var rotationDegrees = 0.0
@@ -182,7 +319,10 @@ struct ContentView: View {
       PreviewView(
         session: model.session,
         videoGravity: videoGravity,
-        rotationDegrees: rotationDegrees
+        rotationDegrees: rotationDegrees,
+        controlEnabled: control.enabled,
+        onTap: { control.tap(normalized: $0) },
+        onSwipe: { control.swipe(from: $0, to: $1) }
       )
       .ignoresSafeArea()
 
@@ -210,6 +350,10 @@ struct ContentView: View {
 
             Button(model.audioEnabled ? "Audio On" : "Audio Off") {
               model.toggleAudio()
+            }
+
+            Button(control.enabled ? "Control On" : "Control Off") {
+              control.toggle()
             }
 
             Picker("Ratio", selection: $ratioMode) {
@@ -246,7 +390,7 @@ struct ContentView: View {
           Spacer()
 
           HStack {
-            Text(model.status)
+            Text("\(model.status)  |  \(control.status)")
               .font(.callout)
               .padding(.horizontal, 12)
               .padding(.vertical, 8)
@@ -282,6 +426,9 @@ struct ContentView: View {
               .frame(width: 44)
             Button("Reset") {
               rotationDegrees = 0
+            }
+            Button(control.enabled ? "Control On" : "Control Off") {
+              control.toggle()
             }
             Button("Hide") {
               showControls = false
@@ -346,12 +493,18 @@ struct PreviewView: NSViewRepresentable {
   let session: AVCaptureSession
   let videoGravity: AVLayerVideoGravity
   let rotationDegrees: Double
+  let controlEnabled: Bool
+  let onTap: (CGPoint) -> Void
+  let onSwipe: (CGPoint, CGPoint) -> Void
 
   func makeNSView(context: Context) -> PreviewContainerView {
     let view = PreviewContainerView()
     view.previewLayer.session = session
     view.previewLayer.videoGravity = videoGravity
     view.rotationDegrees = rotationDegrees
+    view.controlEnabled = controlEnabled
+    view.onTap = onTap
+    view.onSwipe = onSwipe
     return view
   }
 
@@ -359,11 +512,18 @@ struct PreviewView: NSViewRepresentable {
     nsView.previewLayer.session = session
     nsView.previewLayer.videoGravity = videoGravity
     nsView.rotationDegrees = rotationDegrees
+    nsView.controlEnabled = controlEnabled
+    nsView.onTap = onTap
+    nsView.onSwipe = onSwipe
   }
 }
 
 final class PreviewContainerView: NSView {
   let previewLayer = AVCaptureVideoPreviewLayer()
+  var controlEnabled = false
+  var onTap: ((CGPoint) -> Void)?
+  var onSwipe: ((CGPoint, CGPoint) -> Void)?
+  private var dragStart: CGPoint?
   var rotationDegrees = 0.0 {
     didSet {
       needsLayout = true
@@ -390,5 +550,40 @@ final class PreviewContainerView: NSView {
     previewLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
     let radians = CGFloat(rotationDegrees * .pi / 180)
     previewLayer.setAffineTransform(CGAffineTransform(rotationAngle: radians))
+  }
+
+  override func mouseDown(with event: NSEvent) {
+    guard controlEnabled else {
+      super.mouseDown(with: event)
+      return
+    }
+    dragStart = normalizedPoint(from: event)
+  }
+
+  override func mouseUp(with event: NSEvent) {
+    guard controlEnabled else {
+      super.mouseUp(with: event)
+      return
+    }
+    let end = normalizedPoint(from: event)
+    guard let start = dragStart else {
+      onTap?(end)
+      return
+    }
+    dragStart = nil
+    let distance = hypot(end.x - start.x, end.y - start.y)
+    if distance < 0.025 {
+      onTap?(end)
+    } else {
+      onSwipe?(start, end)
+    }
+  }
+
+  private func normalizedPoint(from event: NSEvent) -> CGPoint {
+    let local = convert(event.locationInWindow, from: nil)
+    guard bounds.width > 0, bounds.height > 0 else { return .zero }
+    let x = max(0, min(1, local.x / bounds.width))
+    let y = max(0, min(1, 1 - (local.y / bounds.height)))
+    return CGPoint(x: x, y: y)
   }
 }
