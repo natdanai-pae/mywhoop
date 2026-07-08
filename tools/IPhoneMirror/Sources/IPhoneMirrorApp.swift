@@ -177,6 +177,7 @@ final class WDAControlModel: ObservableObject {
   @Published var status = "Control Off"
   @Published var debugPoint: CGPoint?
   @Published var debugText = ""
+  @Published var screenSize = CGSize(width: 430, height: 932)
 
   private let baseURLCandidates = [
     URL(string: "http://127.0.0.1:8100")!,
@@ -184,7 +185,6 @@ final class WDAControlModel: ObservableObject {
   ]
   private var baseURL = URL(string: "http://127.0.0.1:8100")!
   private var sessionID: String?
-  private var screenSize = CGSize(width: 430, height: 932)
 
   func toggle() {
     enabled.toggle()
@@ -201,7 +201,7 @@ final class WDAControlModel: ObservableObject {
       await ensureConnected()
       guard let sessionID else { return }
       let point = devicePoint(from: point)
-      await post("/session/\(sessionID)/wda/tap/0", body: [
+      await post("/session/\(sessionID)/wda/tap", body: [
         "x": point.x,
         "y": point.y
       ])
@@ -344,8 +344,9 @@ struct ContentView: View {
 
       if control.enabled, let point = control.debugPoint {
         GeometryReader { proxy in
-          let x = proxy.size.width * point.x
-          let y = proxy.size.height * point.y
+          let mirrorRect = mirrorContentRect(in: proxy.size)
+          let x = mirrorRect.minX + mirrorRect.width * point.x
+          let y = mirrorRect.minY + mirrorRect.height * point.y
           ZStack(alignment: .topLeading) {
             Circle()
               .stroke(.cyan, lineWidth: 3)
@@ -528,10 +529,38 @@ struct ContentView: View {
     guard let window = NSApp.keyWindow else { return .zero }
     let width = max(window.contentView?.bounds.width ?? 1, 1)
     let height = max(window.contentView?.bounds.height ?? 1, 1)
+    let mirrorRect = mirrorContentRect(in: CGSize(width: width, height: height))
     return CGPoint(
-      x: max(0, min(1, location.x / width)),
-      y: max(0, min(1, location.y / height))
+      x: max(0, min(1, (location.x - mirrorRect.minX) / mirrorRect.width)),
+      y: max(0, min(1, (location.y - mirrorRect.minY) / mirrorRect.height))
     )
+  }
+
+  private func mirrorContentRect(in size: CGSize) -> CGRect {
+    guard size.width > 0, size.height > 0 else {
+      return CGRect(origin: .zero, size: CGSize(width: 1, height: 1))
+    }
+    let aspect = max(control.screenSize.width / max(control.screenSize.height, 1), 0.01)
+    let viewAspect = size.width / size.height
+
+    switch ratioMode {
+    case "Stretch":
+      return CGRect(origin: .zero, size: size)
+    case "Fill":
+      if viewAspect > aspect {
+        let contentHeight = size.width / aspect
+        return CGRect(x: 0, y: (size.height - contentHeight) / 2, width: size.width, height: contentHeight)
+      }
+      let contentWidth = size.height * aspect
+      return CGRect(x: (size.width - contentWidth) / 2, y: 0, width: contentWidth, height: size.height)
+    default:
+      if viewAspect > aspect {
+        let contentWidth = size.height * aspect
+        return CGRect(x: (size.width - contentWidth) / 2, y: 0, width: contentWidth, height: size.height)
+      }
+      let contentHeight = size.width / aspect
+      return CGRect(x: 0, y: (size.height - contentHeight) / 2, width: size.width, height: contentHeight)
+    }
   }
 
   private var videoGravity: AVLayerVideoGravity {
