@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreMediaIO
 import SwiftUI
 
 @main
@@ -27,22 +28,19 @@ final class MirrorModel: ObservableObject {
   }
 
   init() {
+    enableIPhoneScreenCaptureDevices()
     refreshDevices()
   }
 
   func refreshDevices() {
-    var deviceTypes: [AVCaptureDevice.DeviceType] = [
-      .externalUnknown,
-      .builtInWideAngleCamera
-    ]
+    enableIPhoneScreenCaptureDevices()
 
-    if #available(macOS 14.0, *) {
-      deviceTypes.insert(.external, at: 0)
-    }
+    var deviceTypes: [AVCaptureDevice.DeviceType] = [.externalUnknown]
+    deviceTypes.insert(.external, at: 0)
 
     let discovery = AVCaptureDevice.DiscoverySession(
       deviceTypes: deviceTypes,
-      mediaType: .video,
+      mediaType: .muxed,
       position: .unspecified
     )
 
@@ -58,7 +56,7 @@ final class MirrorModel: ObservableObject {
     }
 
     selectedDeviceID = preferredIPhoneDevice()?.uniqueID ?? devices.first?.uniqueID
-    status = devices.isEmpty ? "ยังไม่เจอ iPhone: ปลดล็อกเครื่อง กด Trust This Computer แล้วกด Refresh" : "เลือกเครื่องแล้วกด Start Mirror"
+    status = devices.isEmpty ? "ยังไม่เจอจอ iPhone: เสียบ USB, ปลดล็อก, กด Trust แล้วลอง QuickTime > New Movie Recording" : "เจอ iPhone screen แล้ว กด Start Mirror"
   }
 
   func start() {
@@ -93,6 +91,23 @@ final class MirrorModel: ObservableObject {
       let name = device.localizedName.lowercased()
       return name.contains("iphone") || name.contains("ipad")
     }
+  }
+
+  private func enableIPhoneScreenCaptureDevices() {
+    var propertyAddress = CMIOObjectPropertyAddress(
+      mSelector: CMIOObjectPropertySelector(kCMIOHardwarePropertyAllowScreenCaptureDevices),
+      mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeGlobal),
+      mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain)
+    )
+    var allow: UInt32 = 1
+    CMIOObjectSetPropertyData(
+      CMIOObjectID(kCMIOObjectSystemObject),
+      &propertyAddress,
+      0,
+      nil,
+      UInt32(MemoryLayout.size(ofValue: allow)),
+      &allow
+    )
   }
 
   private func configureSession(_ device: AVCaptureDevice) {
@@ -136,7 +151,7 @@ struct ContentView: View {
 
         Picker("Device", selection: $model.selectedDeviceID) {
           if model.devices.isEmpty {
-            Text("No device").tag(Optional<String>.none)
+            Text("No iPhone screen").tag(Optional<String>.none)
           }
           ForEach(model.devices, id: \.uniqueID) { device in
             Text(device.localizedName).tag(Optional(device.uniqueID))
