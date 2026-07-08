@@ -178,7 +178,11 @@ final class WDAControlModel: ObservableObject {
   @Published var debugPoint: CGPoint?
   @Published var debugText = ""
 
-  private let baseURL = URL(string: "http://127.0.0.1:8100")!
+  private let baseURLCandidates = [
+    URL(string: "http://127.0.0.1:8100")!,
+    URL(string: "http://192.168.1.190:8100")!
+  ]
+  private var baseURL = URL(string: "http://127.0.0.1:8100")!
   private var sessionID: String?
   private var screenSize = CGSize(width: 430, height: 932)
 
@@ -225,31 +229,35 @@ final class WDAControlModel: ObservableObject {
   }
 
   private func connect() async {
-    do {
-      let statusJSON = try await requestJSON("/status", method: "GET")
-      if let value = statusJSON["value"] as? [String: Any],
-         let message = value["message"] as? String {
-        status = "WDA: \(message)"
-      }
+    for candidate in baseURLCandidates {
+      do {
+        baseURL = candidate
+        let statusJSON = try await requestJSON("/status", method: "GET")
+        if let value = statusJSON["value"] as? [String: Any],
+           let message = value["message"] as? String {
+          status = "WDA: \(message)"
+        }
 
-      let sessionJSON = try await requestJSON(
-        "/session",
-        method: "POST",
-        body: ["capabilities": ["alwaysMatch": [:]]]
-      )
-      if let value = sessionJSON["value"] as? [String: Any],
-         let id = value["sessionId"] as? String {
-        sessionID = id
-      } else if let id = sessionJSON["sessionId"] as? String {
-        sessionID = id
-      }
+        let sessionJSON = try await requestJSON(
+          "/session",
+          method: "POST",
+          body: ["capabilities": ["alwaysMatch": [:]]]
+        )
+        if let value = sessionJSON["value"] as? [String: Any],
+           let id = value["sessionId"] as? String {
+          sessionID = id
+        } else if let id = sessionJSON["sessionId"] as? String {
+          sessionID = id
+        }
 
-      await updateScreenSize()
-      status = "Control On: WDA ready"
-    } catch {
-      sessionID = nil
-      status = "WDA ไม่พร้อม แต่ debug click ยังเปิดอยู่"
+        await updateScreenSize()
+        status = "Control On: WDA ready via \(candidate.host ?? "localhost")"
+        return
+      } catch {
+        sessionID = nil
+      }
     }
+    status = "WDA ไม่พร้อม แต่ debug click ยังเปิดอยู่"
   }
 
   private func showDebug(_ point: CGPoint, label: String) {

@@ -25,7 +25,7 @@ Mac app สำหรับ mirror หน้าจอ iPhone ผ่านสา�
 ต้องมี WebDriverAgent ฟังอยู่ที่ `http://127.0.0.1:8100` ก่อน:
 
 ```sh
-iproxy 8100 8100
+iproxy 8100:8100 -u 00008150-000251E9349A401C
 ```
 
 แล้วรัน WebDriverAgentRunner ลง iPhone:
