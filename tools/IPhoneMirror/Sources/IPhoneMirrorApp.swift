@@ -33,6 +33,23 @@ final class MirrorModel: ObservableObject {
   }
 
   func refreshDevices() {
+    switch AVCaptureDevice.authorizationStatus(for: .video) {
+    case .authorized:
+      scanDevices()
+    case .notDetermined:
+      status = "กำลังขอสิทธิ์ Camera เพื่ออ่าน iPhone screen feed"
+      AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+        Task { @MainActor in
+          guard let self else { return }
+          granted ? self.scanDevices() : (self.status = "ต้องอนุญาต Camera permission ก่อนถึงจะเห็น iPhone screen")
+        }
+      }
+    default:
+      status = "เปิดสิทธิ์ Camera ให้ IPhoneMirror ใน System Settings > Privacy & Security > Camera"
+    }
+  }
+
+  private func scanDevices() {
     enableIPhoneScreenCaptureDevices()
 
     var deviceTypes: [AVCaptureDevice.DeviceType] = [.externalUnknown]
@@ -56,7 +73,8 @@ final class MirrorModel: ObservableObject {
     }
 
     selectedDeviceID = preferredIPhoneDevice()?.uniqueID ?? devices.first?.uniqueID
-    status = devices.isEmpty ? "ยังไม่เจอจอ iPhone: เสียบ USB, ปลดล็อก, กด Trust แล้วลอง QuickTime > New Movie Recording" : "เจอ iPhone screen \(devices.count) รายการ แล้วกด Start Mirror"
+    let names = devices.map(\.localizedName).joined(separator: ", ")
+    status = devices.isEmpty ? "ยังไม่เจอจอ iPhone: เสียบ USB, ปลดล็อก, กด Trust แล้วลอง QuickTime > New Movie Recording" : "เจอ iPhone screen: \(names)"
   }
 
   func start() {
