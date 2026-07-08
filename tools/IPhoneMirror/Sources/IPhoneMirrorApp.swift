@@ -173,12 +173,15 @@ final class MirrorModel: ObservableObject {
 struct ContentView: View {
   @StateObject private var model = MirrorModel()
   @State private var theaterMode = false
+  @State private var ratioMode = "Fill"
+  @State private var zoom = 1.0
 
   var body: some View {
     ZStack {
       PreviewView(
         session: model.session,
-        videoGravity: theaterMode ? .resizeAspectFill : .resizeAspect
+        videoGravity: videoGravity,
+        zoom: zoom
       )
       .ignoresSafeArea()
 
@@ -208,6 +211,29 @@ struct ContentView: View {
               model.toggleAudio()
             }
 
+            Picker("Ratio", selection: $ratioMode) {
+              Text("Fit").tag("Fit")
+              Text("Fill").tag("Fill")
+              Text("Stretch").tag("Stretch")
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 210)
+
+            HStack(spacing: 8) {
+              Button("-") {
+                adjustZoom(-0.05)
+              }
+              Slider(value: $zoom, in: 0.75...1.75, step: 0.01)
+                .frame(width: 120)
+              Button("+") {
+                adjustZoom(0.05)
+              }
+              Text(String(format: "%.2fx", zoom))
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .trailing)
+            }
+
             Button("Fullscreen") {
               toggleTheaterMode()
             }
@@ -235,9 +261,57 @@ struct ContentView: View {
           }
         }
       }
+
+      if theaterMode {
+        VStack {
+          Spacer()
+          HStack(spacing: 10) {
+            Button("Fit") {
+              ratioMode = "Fit"
+            }
+            Button("Fill") {
+              ratioMode = "Fill"
+            }
+            Button("Stretch") {
+              ratioMode = "Stretch"
+            }
+            Divider()
+              .frame(height: 20)
+            Button("-") {
+              adjustZoom(-0.05)
+            }
+            Text(String(format: "%.2fx", zoom))
+              .font(.callout.monospacedDigit())
+              .frame(width: 52)
+            Button("+") {
+              adjustZoom(0.05)
+            }
+          }
+          .buttonStyle(.bordered)
+          .padding(.horizontal, 14)
+          .padding(.vertical, 10)
+          .background(.black.opacity(0.55), in: Capsule())
+          .padding(.bottom, 24)
+        }
+      }
     }
     .background(.black)
     .keyboardShortcut("f", modifiers: [.command, .control])
+  }
+
+  private var videoGravity: AVLayerVideoGravity {
+    switch ratioMode {
+    case "Fit":
+      return .resizeAspect
+    case "Stretch":
+      return .resize
+    default:
+      return .resizeAspectFill
+    }
+  }
+
+  private func adjustZoom(_ delta: Double) {
+    zoom = min(1.75, max(0.75, zoom + delta))
   }
 
   private func toggleTheaterMode() {
@@ -254,22 +328,30 @@ struct ContentView: View {
 struct PreviewView: NSViewRepresentable {
   let session: AVCaptureSession
   let videoGravity: AVLayerVideoGravity
+  let zoom: Double
 
   func makeNSView(context: Context) -> PreviewContainerView {
     let view = PreviewContainerView()
     view.previewLayer.session = session
     view.previewLayer.videoGravity = videoGravity
+    view.zoom = zoom
     return view
   }
 
   func updateNSView(_ nsView: PreviewContainerView, context: Context) {
     nsView.previewLayer.session = session
     nsView.previewLayer.videoGravity = videoGravity
+    nsView.zoom = zoom
   }
 }
 
 final class PreviewContainerView: NSView {
   let previewLayer = AVCaptureVideoPreviewLayer()
+  var zoom = 1.0 {
+    didSet {
+      needsLayout = true
+    }
+  }
 
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
@@ -287,5 +369,8 @@ final class PreviewContainerView: NSView {
   override func layout() {
     super.layout()
     previewLayer.frame = bounds
+    previewLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+    previewLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+    previewLayer.setAffineTransform(CGAffineTransform(scaleX: zoom, y: zoom))
   }
 }
