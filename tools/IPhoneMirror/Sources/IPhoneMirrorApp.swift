@@ -19,9 +19,11 @@ final class MirrorModel: ObservableObject {
   @Published var selectedDeviceID: String?
   @Published var status = "เสียบ iPhone ด้วย USB แล้วกด Refresh"
   @Published var isRunning = false
+  @Published var audioEnabled = true
 
   let session = AVCaptureSession()
   private var currentInput: AVCaptureDeviceInput?
+  private let audioPreviewOutput = AVCaptureAudioPreviewOutput()
 
   var selectedDevice: AVCaptureDevice? {
     devices.first { $0.uniqueID == selectedDeviceID }
@@ -104,6 +106,12 @@ final class MirrorModel: ObservableObject {
     status = "หยุด mirror แล้ว"
   }
 
+  func toggleAudio() {
+    audioEnabled.toggle()
+    audioPreviewOutput.volume = audioEnabled ? 1.0 : 0.0
+    status = audioEnabled ? "เปิดเสียงจาก iPhone เข้า Mac แล้ว" : "ปิดเสียงจาก iPhone แล้ว"
+  }
+
   private func preferredIPhoneDevice() -> AVCaptureDevice? {
     devices.first { device in
       let name = device.localizedName.lowercased()
@@ -141,13 +149,19 @@ final class MirrorModel: ObservableObject {
         session.addInput(input)
         currentInput = input
       }
+      if !session.outputs.contains(audioPreviewOutput), session.canAddOutput(audioPreviewOutput) {
+        audioPreviewOutput.outputDeviceUniqueID = nil
+        audioPreviewOutput.volume = audioEnabled ? 1.0 : 0.0
+        session.addOutput(audioPreviewOutput)
+      }
       session.commitConfiguration()
 
+      let audioStatus = session.outputs.contains(audioPreviewOutput) ? " + audio" : " (ยังเปิด audio preview ไม่ได้)"
       DispatchQueue.global(qos: .userInitiated).async { [session] in
         session.startRunning()
         DispatchQueue.main.async {
           self.isRunning = true
-          self.status = "Mirroring: \(device.localizedName)"
+          self.status = "Mirroring: \(device.localizedName)\(audioStatus)"
         }
       }
     } catch {
@@ -180,6 +194,15 @@ struct ContentView: View {
         Button("Refresh") {
           model.refreshDevices()
         }
+
+        Button(model.audioEnabled ? "Audio On" : "Audio Off") {
+          model.toggleAudio()
+        }
+
+        Button("Fullscreen") {
+          NSApp.keyWindow?.toggleFullScreen(nil)
+        }
+        .keyboardShortcut("f", modifiers: [.command, .control])
 
         Button(model.isRunning ? "Stop" : "Start Mirror") {
           model.isRunning ? model.stop() : model.start()
