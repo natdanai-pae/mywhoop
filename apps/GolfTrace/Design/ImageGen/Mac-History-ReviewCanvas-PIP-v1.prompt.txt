@@ -1,0 +1,31 @@
+Use case: compositing
+Asset type: final high-fidelity macOS GolfTrace History detail UX guide
+
+Image 1 is the edit target and defines the GolfTrace history layout, theme,
+portrait swing video, sidebar, and controls. Image 2 supplies only the captured
+Rapsodo fairway appearance.
+
+Turn the detail preview into one layered review canvas:
+
+- Preserve the window, sidebar, dark theme, real swing video, compact date,
+  Back and Open Replay controls.
+- Place the complete Swing Storyboard in a wide translucent glass overlay over
+  the lower portion of the main video. Keep all eight compact phase tiles in the
+  initial viewport and retain the honest legacy label "วงเก่า · ไม่มี Storyboard".
+- Add a 16:9 captured Rapsodo-video PIP on the right, above the Storyboard,
+  labelled "Rapsodo". It contains video only.
+- Add one circular opposing-arrows control labelled "สลับภาพหลัก" to swap the
+  swing and Rapsodo videos between main and PIP.
+- Keep the swing video aspect-fit without crop or stretch.
+- Remove the separate Storyboard card and all Ball Speed, Launch, Spin, Carry,
+  and invented measurement cards or values.
+- Do not cover the golfer's torso or hands when unused letterbox space exists.
+- No extra panels, bright gradients, white surfaces, fake data, or watermark.
+
+Visible text: "20 ก.ค. 2569 · 15:26", "วงเก่า · 6.36 วินาที · 15 ตัวอย่าง",
+"กลับหน้าซ้อม", "เปิด Replay", "Swing Storyboard",
+"วงเก่า · ไม่มี Storyboard", "Rapsodo", and "สลับภาพหลัก".
+
+Built-in ImageGen edit. Edit target:
+Mac-History-Workspace compact-header guide. Supporting source: live GolfTrace
+dashboard screenshot containing the Rapsodo fairway capture.
