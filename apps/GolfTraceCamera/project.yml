@@ -1,0 +1,68 @@
+name: GolfTraceCamera
+
+options:
+  minimumXcodeGenVersion: 2.42.0
+  bundleIdPrefix: com.bda
+  deploymentTarget:
+    iOS: "18.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+
+schemes:
+  GolfTraceCamera:
+    build:
+      targets:
+        GolfTraceCamera: all
+        GolfTraceCameraTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - GolfTraceCameraTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+    management:
+      shared: true
+
+targets:
+  GolfTraceCamera:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - Sources
+      - path: ../Shared
+        group: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bda.golftrace
+        PRODUCT_NAME: GolfTraceCamera
+        INFOPLIST_FILE: Sources/Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "16"
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: "NO"
+        ENABLE_USER_SCRIPT_SANDBOXING: "YES"
+  GolfTraceCameraTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - Tests
+    dependencies:
+      - target: GolfTraceCamera
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bda.golftrace.camera.tests
+        GENERATE_INFOPLIST_FILE: "YES"
+        CODE_SIGN_STYLE: Automatic

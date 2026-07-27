@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "sourcePolicy": {
+    "scope": "one-clip-one-angle",
+    "allowCrossClipPhaseMixing": false
+  },
+  "clips": [
+    {
+      "id": "A0ty-e8e5cc",
+      "url": "https://www.youtube.com/shorts/A0ty-e8e5cc",
+      "validationRole": "complete-swing-side-view",
+      "cameraView": "side",
+      "requiresEightPhases": true,
+      "expected": {
+        "pixelWidth": 720,
+        "pixelHeight": 1280,
+        "orientation": "portrait",
+        "framesPerSecond": 60.0,
+        "durationSeconds": 10.933333
+      }
+    },
+    {
+      "id": "GC_1AdftZoU",
+      "url": "https://www.youtube.com/shorts/GC_1AdftZoU",
+      "validationRole": "partial-backswing-drill-negative",
+      "cameraView": "side",
+      "requiresEightPhases": false,
+      "expected": {
+        "pixelWidth": 720,
+        "pixelHeight": 1280,
+        "orientation": "portrait",
+        "framesPerSecond": 30.0,
+        "durationSeconds": 10.0
+      }
+    },
+    {
+      "id": "3TTF7tQ6frs",
+      "url": "https://www.youtube.com/shorts/3TTF7tQ6frs",
+      "validationRole": "complete-swing-side-view",
+      "cameraView": "side",
+      "requiresEightPhases": true,
+      "expected": {
+        "pixelWidth": 720,
+        "pixelHeight": 880,
+        "orientation": "portrait",
+        "framesPerSecond": 60.0,
+        "durationSeconds": 8.483333
+      }
+    },
+    {
+      "id": "oandn2z-KwA",
+      "url": "https://www.youtube.com/shorts/oandn2z-KwA",
+      "validationRole": "front-view-path-drill-pre-cut-segment",
+      "cameraView": "front",
+      "requiresEightPhases": false,
+      "segment": {
+        "startSeconds": 0.0,
+        "endSeconds": 24.0
+      },
+      "expected": {
+        "pixelWidth": 720,
+        "pixelHeight": 1280,
+        "orientation": "portrait",
+        "framesPerSecond": 25.0,
+        "durationSeconds": 24.0
+      }
+    }
+  ]
+}
