@@ -79,29 +79,14 @@ jobs:
           python3 - <<'PY'
           import json
           import os
-          import re
           import subprocess
 
-          destinations = subprocess.check_output(
-              [
-                  "xcodebuild",
-                  "-project",
-                  "GolfTraceCamera.xcodeproj",
-                  "-scheme",
-                  "GolfTraceCamera",
-                  "-showdestinations",
-              ],
-              stderr=subprocess.STDOUT,
-              text=True,
-          )
-          compatible_ids = set(
-              re.findall(
-                  r"\{[^}\n]*platform:iOS Simulator[^}\n]*"
-                  r"id:([0-9A-Fa-f-]{36})",
-                  destinations,
+          runtime_data = json.loads(
+              subprocess.check_output(
+                  ["xcrun", "simctl", "list", "runtimes", "available", "-j"],
+                  text=True,
               )
           )
-
           simulator_data = json.loads(
               subprocess.check_output(
                   ["xcrun", "simctl", "list", "devices", "available", "-j"],
@@ -109,44 +94,76 @@ jobs:
               )
           )
 
-          candidates = []
-          for runtime, devices in simulator_data.get("devices", {}).items():
-              match = re.search(r"SimRuntime\.iOS-(\d+(?:-\d+)*)$", runtime)
-              if match is None:
-                  continue
+          def version_tuple(value):
+              return tuple(int(part) for part in value.split("."))
 
-              version = tuple(int(part) for part in match.group(1).split("-"))
-              for index, device in enumerate(devices):
-                  if (
-                      device.get("isAvailable")
-                      and ".SimDeviceType.iPhone-" in device.get(
-                          "deviceTypeIdentifier", ""
-                      )
-                      and device.get("udid") in compatible_ids
-                  ):
-                      candidates.append((version, index, runtime, device))
+          runtimes = []
+          for runtime in runtime_data.get("runtimes", []):
+              identifier = runtime.get("identifier", "")
+              if (
+                  runtime.get("isAvailable")
+                  and ".SimRuntime.iOS-" in identifier
+              ):
+                  runtimes.append(runtime)
 
-          if not candidates:
-              raise SystemExit(
-                  "No available iPhone simulator is compatible with the "
-                  "active Xcode"
-              )
+          if not runtimes:
+              raise SystemExit("No available iOS Simulator runtime is installed")
 
-          newest_runtime = max(candidate[0] for candidate in candidates)
-          _, _, runtime, device = min(
-              (
-                  candidate
-                  for candidate in candidates
-                  if candidate[0] == newest_runtime
-              ),
-              key=lambda candidate: candidate[1],
+          runtime = max(
+              runtimes,
+              key=lambda item: version_tuple(item.get("version", "0")),
           )
+          runtime_id = runtime["identifier"]
+          existing = [
+              device
+              for device in simulator_data.get("devices", {}).get(runtime_id, [])
+              if device.get("isAvailable")
+              and ".SimDeviceType.iPhone-" in device.get(
+                  "deviceTypeIdentifier", ""
+              )
+          ]
+
+          if existing:
+              device = existing[0]
+          else:
+              supported_types = [
+                  device_type
+                  for device_type in runtime.get("supportedDeviceTypes", [])
+                  if device_type.get("productFamily") == "iPhone"
+              ]
+              if not supported_types:
+                  raise SystemExit(
+                      "The newest iOS runtime has no supported iPhone device type"
+                  )
+
+              device_type = supported_types[0]
+              udid = subprocess.check_output(
+                  [
+                      "xcrun",
+                      "simctl",
+                      "create",
+                      "GolfTrace CI iPhone",
+                      device_type["identifier"],
+                      runtime_id,
+                  ],
+                  text=True,
+              ).strip()
+              if not udid:
+                  raise SystemExit("simctl did not return a simulator UDID")
+              device = {
+                  "name": "GolfTrace CI iPhone",
+                  "udid": udid,
+              }
+
+          if not device.get("udid"):
+              raise SystemExit("Selected iPhone simulator has no UDID")
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               print(f"udid={device['udid']}", file=output)
 
           print(
-              f"Selected {device['name']} ({runtime}) with UDID {device['udid']}"
+              f"Selected {device['name']} ({runtime_id}) "
+              f"with UDID {device['udid']}"
           )
           PY
       - name: Test GolfTraceCamera on selected iPhone simulator
