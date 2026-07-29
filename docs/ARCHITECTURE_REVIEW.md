@@ -388,8 +388,9 @@ introduced only when login/sync requires one.
   names or assumptions.
 - Legacy live metrics still depend directly on Vision joint identifiers and Apple media
   time. Accepted poses now also pass through the neutral adapter into a bounded shadow
-  skeleton window, but no UI, persistence, phase detector, metric calculator, or coach path
-  consumes that shadow output yet.
+  skeleton window. A pure completion-scoped slicer validates exact time boundaries and
+  frozen provenance once per completed swing, but no UI, persistence, phase detector,
+  metric calculator, or coach path consumes that shadow evidence yet.
 - The additive domain contracts define the canonical ten-phase vocabulary, but the live path
   still emits partial string-based phase evidence and the eight-slot storyboard remains a
   presentation model. Full live ten-phase detection is neither integrated nor validated.

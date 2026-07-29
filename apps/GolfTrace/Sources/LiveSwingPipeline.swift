@@ -1,3 +1,4 @@
+import CoreMedia
 import Foundation
 
 /// Capture metadata sampled independently from the ordered pose stream.
@@ -62,13 +63,15 @@ struct LiveSwingCompletion: @unchecked Sendable {
   let session: SwingSessionSummary
   let result: SwingAnalysisResult
   let captureContext: LiveSwingCaptureContext
+  let motionSkeletonEvidence: MotionSkeletonSessionEvidence
 
   func delivered(in epoch: UInt64) -> LiveSwingCompletion {
     LiveSwingCompletion(
       epoch: epoch,
       session: session,
       result: result,
-      captureContext: captureContext
+      captureContext: captureContext,
+      motionSkeletonEvidence: motionSkeletonEvidence
     )
   }
 }
@@ -157,6 +160,7 @@ final class LiveSwingPipeline: @unchecked Sendable {
   private var motionSkeletonWindow: MotionSkeletonFrameWindow
   private var captureContext = LiveSwingCaptureContext.initial
   private var activeSessionCaptureContext: LiveSwingCaptureContext?
+  private var activeSessionMotionProvenance: MotionSkeletonSessionProvenance?
   private var processedPoseCount = 0
   private var lastCompletion: LiveSwingCompletion?
   private var pendingLiveState: PendingLiveState?
@@ -285,6 +289,7 @@ final class LiveSwingPipeline: @unchecked Sendable {
     livePublisher.clearPendingValue()
     processedPoseCount = 0
     activeSessionCaptureContext = nil
+    activeSessionMotionProvenance = nil
 
     if request.resetMotionAndMetrics {
       motionAnalyzer.reset()
@@ -339,6 +344,7 @@ final class LiveSwingPipeline: @unchecked Sendable {
     metricsAnalyzer.consume(pose: transfer.pose, motion: leanMotion)
     let previousState = sessionDetector.state
     let nextState = sessionDetector.consume(leanMotion)
+    let appendedMotionSkeletonFrame = appendMotionSkeletonFrame(from: transfer.pose)
     if previousState != .confirmingSwing && previousState != .swinging,
       nextState == .confirmingSwing || nextState == .swinging
     {
@@ -346,10 +352,12 @@ final class LiveSwingPipeline: @unchecked Sendable {
       // session. A reconnect or device turn resets the whole pipeline, so a
       // completed packet can never be relabelled from mutable UI state later.
       activeSessionCaptureContext = captureContext
+      activeSessionMotionProvenance = appendedMotionSkeletonFrame.map {
+        MotionSkeletonSessionProvenance(context: $0.context)
+      }
     }
     let nextStatus = sessionDetector.statusText
     processedPoseCount += 1
-    appendMotionSkeletonFrame(from: transfer.pose)
 
     offerLiveState(
       PendingLiveState(
@@ -367,6 +375,7 @@ final class LiveSwingPipeline: @unchecked Sendable {
     }
 
     let completedCaptureContext = activeSessionCaptureContext ?? captureContext
+    let motionSkeletonEvidence = completionMotionSkeletonEvidence(for: completedSession)
     let result = metricsAnalyzer.finalizeWithEvidence(
       session: completedSession,
       captureFPS: completedCaptureContext.captureFPS,
@@ -377,15 +386,17 @@ final class LiveSwingPipeline: @unchecked Sendable {
       epoch: transfer.epoch,
       session: completedSession,
       result: result,
-      captureContext: completedCaptureContext
+      captureContext: completedCaptureContext,
+      motionSkeletonEvidence: motionSkeletonEvidence
     )
     activeSessionCaptureContext = nil
+    activeSessionMotionProvenance = nil
     lastCompletion = completion
     deliverCompletion(completion)
   }
 
-  private func appendMotionSkeletonFrame(from pose: PoseFrame?) {
-    guard let pose else { return }
+  private func appendMotionSkeletonFrame(from pose: PoseFrame?) -> MotionSkeletonFrame? {
+    guard let pose else { return nil }
     let identity = MotionSkeletonSourceIdentity(captureContext: captureContext)
     let sourceContext = MotionFrameSourceContext(
       sourceID: identity.sourceID,
@@ -401,9 +412,29 @@ final class LiveSwingPipeline: @unchecked Sendable {
         sourceContext: sourceContext
       )
     else {
-      return
+      return nil
     }
-    motionSkeletonWindow.append(frame)
+    guard motionSkeletonWindow.append(frame) else {
+      return nil
+    }
+    return frame
+  }
+
+  private func completionMotionSkeletonEvidence(
+    for session: SwingSessionSummary
+  ) -> MotionSkeletonSessionEvidence {
+    guard let activeSessionMotionProvenance else {
+      return .unavailable(.missingStartBoundary)
+    }
+
+    return MotionSkeletonSessionSlicer.slice(
+      frames: motionSkeletonWindow.snapshot().frames,
+      timeRange: MotionTimeRange(
+        startSeconds: CMTimeGetSeconds(session.startTimestamp),
+        endSeconds: CMTimeGetSeconds(session.endTimestamp)
+      ),
+      provenance: activeSessionMotionProvenance
+    )
   }
 
   private func offerLiveState(_ state: PendingLiveState) {
@@ -452,6 +483,17 @@ final class LiveSwingPipeline: @unchecked Sendable {
     }
   }
 
+}
+
+extension MotionSkeletonSessionProvenance {
+  init(context: MotionFrameContext) {
+    streamSessionID = context.streamSessionID
+    sourceID = context.sourceID
+    viewpoint = context.viewpoint
+    coordinateSpace = context.coordinateSpace
+    rotationDegrees = context.rotationDegrees
+    isMirrored = context.isMirrored
+  }
 }
 
 extension MotionCameraViewpoint {
