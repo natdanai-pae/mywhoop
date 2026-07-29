@@ -56,6 +56,16 @@ struct LaunchMonitorMetricValue: Codable, Equatable, Identifiable, Sendable {
   let confidence: Double?
 }
 
+/// Structured identity for provider shots that are safe to deduplicate across
+/// app launches. Each field participates independently in equality and hashing,
+/// so delimiter characters inside provider identifiers cannot create aliases.
+struct LaunchMonitorMeasurementDeduplicationKey: Codable, Equatable, Hashable, Sendable {
+  let providerID: LaunchMonitorProviderID
+  let providerDeviceID: String
+  let providerSessionID: String
+  let providerShotID: String
+}
+
 /// Provider-neutral shot measurement.
 ///
 /// Values are normalized to SI-compatible units at the adapter boundary.
@@ -94,10 +104,14 @@ struct LaunchMonitorMeasurement: Codable, Equatable, Identifiable, Sendable {
 
   /// A durable key is available only when the provider supplies device and
   /// session identity. A process-local counter alone is not safe for dedupe.
-  var deduplicationKey: String? {
+  var deduplicationKey: LaunchMonitorMeasurementDeduplicationKey? {
     guard let providerDeviceID, let providerSessionID else { return nil }
-    return
-      "\(providerID.rawValue):\(providerDeviceID):\(providerSessionID):\(providerShotID)"
+    return LaunchMonitorMeasurementDeduplicationKey(
+      providerID: providerID,
+      providerDeviceID: providerDeviceID,
+      providerSessionID: providerSessionID,
+      providerShotID: providerShotID
+    )
   }
 }
 
@@ -109,11 +123,18 @@ struct LaunchMonitorProviderDescriptor: Codable, Equatable, Sendable {
   let supportsAutomaticReconnect: Bool
 }
 
+enum LaunchMonitorMetricUnavailabilityReason: String, Codable, Equatable, Sendable {
+  case unsupportedByProvider = "unsupported_by_provider"
+  case unavailableFromDevice = "unavailable_from_device"
+  case authorizationRequired = "authorization_required"
+  case prerequisiteUnavailable = "prerequisite_unavailable"
+}
+
 struct LaunchMonitorCapabilitySnapshot: Codable, Equatable, Sendable {
   let measuredMetrics: Set<LaunchMonitorMetricID>
   let providerDerivedMetrics: Set<LaunchMonitorMetricID>
   let appDerivedMetrics: Set<LaunchMonitorMetricID>
-  let unavailableReasons: [LaunchMonitorMetricID: String]
+  let unavailableReasons: [LaunchMonitorMetricID: LaunchMonitorMetricUnavailabilityReason]
 
   var availableMetrics: Set<LaunchMonitorMetricID> {
     measuredMetrics.union(providerDerivedMetrics).union(appDerivedMetrics)
@@ -133,35 +154,61 @@ enum LaunchMonitorProviderConnectionPhase: String, Codable, Equatable, Sendable 
   case failed
 }
 
+enum LaunchMonitorProviderStatusDetail: String, Codable, Equatable, Sendable {
+  case idle
+  case bluetoothPoweredOff = "bluetooth_powered_off"
+  case bluetoothUnauthorized = "bluetooth_unauthorized"
+  case bluetoothUnsupported = "bluetooth_unsupported"
+  case bluetoothResetting = "bluetooth_resetting"
+  case bluetoothStateUnknown = "bluetooth_state_unknown"
+  case scanning
+  case deviceTrustRequired = "device_trust_required"
+  case connecting
+  case discoveringServices = "discovering_services"
+  case authorizationRequired = "authorization_required"
+  case arming
+  case ready
+  case stopping
+  case providerFailed = "provider_failed"
+}
+
+enum LaunchMonitorProviderRecovery: String, Codable, Equatable, Sendable {
+  case none
+  case automatic
+  case start
+  case enableBluetooth = "enable_bluetooth"
+  case grantBluetoothPermission = "grant_bluetooth_permission"
+  case useSupportedHardware = "use_supported_hardware"
+  case confirmDeviceTrust = "confirm_device_trust"
+  case completeAuthorization = "complete_authorization"
+  case restart
+}
+
 struct LaunchMonitorProviderStatus: Codable, Equatable, Sendable {
   let phase: LaunchMonitorProviderConnectionPhase
-  let message: String
-  let deviceName: String?
-  let isRecoverable: Bool
+  let detail: LaunchMonitorProviderStatusDetail
+  let recovery: LaunchMonitorProviderRecovery
 }
 
 struct LaunchMonitorDeviceCandidate: Codable, Equatable, Identifiable, Sendable {
   let id: UUID
-  let name: String
+  let displayName: String
   let signalStrength: Int
-}
-
-enum LaunchMonitorProviderActionKind: String, Codable, Equatable, Sendable {
-  case confirmDeviceTrust = "confirm_device_trust"
 }
 
 /// A sanitized request safe to publish to presentation state.
 ///
 /// It identifies the required action but never contains an API secret, token,
 /// authorization credential, or raw Bluetooth response.
-struct LaunchMonitorProviderActionRequest: Codable, Equatable, Identifiable, Sendable {
-  let id: String
-  let kind: LaunchMonitorProviderActionKind
-  let title: String
-  let message: String
-  let deviceID: UUID?
-  let challengeID: String?
-  let requiresSecureInput: Bool
+enum LaunchMonitorProviderActionRequest: Codable, Equatable, Identifiable, Sendable {
+  case confirmDeviceTrust(deviceID: UUID, deviceDisplayName: String)
+
+  var id: String {
+    switch self {
+    case .confirmDeviceTrust(let deviceID, _):
+      "confirm-device-trust:\(deviceID.uuidString.lowercased())"
+    }
+  }
 }
 
 enum LaunchMonitorProviderCommand: Equatable, Sendable {
@@ -174,6 +221,10 @@ enum LaunchMonitorProviderCommandError: Error, Equatable {
   case unsupported
 }
 
+enum LaunchMonitorProviderFailure: String, Codable, Equatable, Sendable {
+  case providerReported = "provider_reported"
+}
+
 enum LaunchMonitorProviderEvent: Equatable, Sendable {
   case capabilitiesChanged(LaunchMonitorCapabilitySnapshot)
   case statusChanged(LaunchMonitorProviderStatus)
@@ -181,7 +232,51 @@ enum LaunchMonitorProviderEvent: Equatable, Sendable {
   case actionRequired(LaunchMonitorProviderActionRequest)
   case measurement(LaunchMonitorMeasurement)
   case batteryLevel(percent: Int)
-  case failure(message: String)
+  case failure(LaunchMonitorProviderFailure)
+}
+
+/// A process-local consumer binding identity. This is never a provider session
+/// identity and must not be persisted as measurement provenance.
+struct LaunchMonitorProviderEventStreamID:
+  RawRepresentable, Codable, Equatable, Hashable, Sendable
+{
+  let rawValue: UUID
+
+  init(rawValue: UUID = UUID()) {
+    self.rawValue = rawValue
+  }
+}
+
+/// Sequence numbers are scoped to `streamID` and begin at one for each provider
+/// adapter instance.
+struct LaunchMonitorProviderEventEnvelope: Equatable, Sendable {
+  let streamID: LaunchMonitorProviderEventStreamID
+  let sequence: UInt64
+  let event: LaunchMonitorProviderEvent
+}
+
+/// Consumer-side stale-event filter. The consumer binds this cursor to the
+/// provider's current stream at initialization; envelopes from another stream
+/// and envelopes at or behind the cursor are rejected.
+struct LaunchMonitorProviderEventCursor: Sendable {
+  private(set) var streamID: LaunchMonitorProviderEventStreamID
+  private(set) var lastAcceptedSequence: UInt64?
+
+  init(streamID: LaunchMonitorProviderEventStreamID) {
+    self.streamID = streamID
+  }
+
+  mutating func accept(
+    _ envelope: LaunchMonitorProviderEventEnvelope
+  ) -> LaunchMonitorProviderEvent? {
+    guard envelope.sequence > 0 else { return nil }
+    guard envelope.streamID == streamID else { return nil }
+    if let lastAcceptedSequence {
+      guard envelope.sequence > lastAcceptedSequence else { return nil }
+    }
+    lastAcceptedSequence = envelope.sequence
+    return envelope.event
+  }
 }
 
 /// Lifecycle and event boundary consumed by a future provider-agnostic store.
@@ -192,7 +287,8 @@ enum LaunchMonitorProviderEvent: Equatable, Sendable {
 protocol LaunchMonitorProviding: AnyObject {
   var descriptor: LaunchMonitorProviderDescriptor { get }
   var capabilities: LaunchMonitorCapabilitySnapshot { get }
-  var eventPublisher: AnyPublisher<LaunchMonitorProviderEvent, Never> { get }
+  var eventStreamID: LaunchMonitorProviderEventStreamID { get }
+  var eventPublisher: AnyPublisher<LaunchMonitorProviderEventEnvelope, Never> { get }
   var hasPendingStopWork: Bool { get }
 
   func start()
@@ -231,7 +327,7 @@ final class MLM2PROLaunchMonitorProviderAdapter: LaunchMonitorProviding {
     unavailableReasons: [:]
   )
 
-  var eventPublisher: AnyPublisher<LaunchMonitorProviderEvent, Never> {
+  var eventPublisher: AnyPublisher<LaunchMonitorProviderEventEnvelope, Never> {
     eventSubject.eraseToAnyPublisher()
   }
 
@@ -240,11 +336,18 @@ final class MLM2PROLaunchMonitorProviderAdapter: LaunchMonitorProviding {
   }
 
   private let controller: LaunchMonitorController
-  private let eventSubject = PassthroughSubject<LaunchMonitorProviderEvent, Never>()
+  let eventStreamID: LaunchMonitorProviderEventStreamID
+  private let eventSubject = PassthroughSubject<LaunchMonitorProviderEventEnvelope, Never>()
+  private var lastPublishedSequence: UInt64 = 0
   private var cancellables: Set<AnyCancellable> = []
 
-  init(controller: LaunchMonitorController) {
+  init(
+    controller: LaunchMonitorController,
+    eventStreamID: LaunchMonitorProviderEventStreamID =
+      LaunchMonitorProviderEventStreamID()
+  ) {
     self.controller = controller
+    self.eventStreamID = eventStreamID
     controller.events
       .sink { [weak self] event in
         self?.publish(event)
@@ -280,72 +383,87 @@ final class MLM2PROLaunchMonitorProviderAdapter: LaunchMonitorProviding {
     case .idle:
       return LaunchMonitorProviderStatus(
         phase: .inactive,
-        message: state.statusText,
-        deviceName: nil,
-        isRecoverable: true
+        detail: .idle,
+        recovery: .start
       )
-    case .bluetoothUnavailable:
+    case .bluetoothUnavailable(let availability):
+      let detail: LaunchMonitorProviderStatusDetail
+      let recovery: LaunchMonitorProviderRecovery
+      switch availability {
+      case .poweredOff:
+        detail = .bluetoothPoweredOff
+        recovery = .enableBluetooth
+      case .unauthorized:
+        detail = .bluetoothUnauthorized
+        recovery = .grantBluetoothPermission
+      case .unsupported:
+        detail = .bluetoothUnsupported
+        recovery = .useSupportedHardware
+      case .resetting:
+        detail = .bluetoothResetting
+        recovery = .automatic
+      case .unknown:
+        detail = .bluetoothStateUnknown
+        recovery = .automatic
+      }
       return LaunchMonitorProviderStatus(
         phase: .unavailable,
-        message: state.statusText,
-        deviceName: nil,
-        isRecoverable: true
+        detail: detail,
+        recovery: recovery
       )
     case .scanning:
       return LaunchMonitorProviderStatus(
         phase: .discovering,
-        message: state.statusText,
-        deviceName: nil,
-        isRecoverable: true
+        detail: .scanning,
+        recovery: .automatic
       )
-    case .awaitingDeviceTrust(_, let deviceName):
+    case .awaitingDeviceTrust:
       return LaunchMonitorProviderStatus(
         phase: .awaitingUserAction,
-        message: state.statusText,
-        deviceName: deviceName,
-        isRecoverable: true
+        detail: .deviceTrustRequired,
+        recovery: .confirmDeviceTrust
       )
-    case .connecting(let deviceName), .discoveringServices(let deviceName):
+    case .connecting:
       return LaunchMonitorProviderStatus(
         phase: .connecting,
-        message: state.statusText,
-        deviceName: deviceName,
-        isRecoverable: true
+        detail: .connecting,
+        recovery: .automatic
       )
-    case .awaitingAuthorization(let deviceName, _):
+    case .discoveringServices:
+      return LaunchMonitorProviderStatus(
+        phase: .connecting,
+        detail: .discoveringServices,
+        recovery: .automatic
+      )
+    case .awaitingAuthorization:
       return LaunchMonitorProviderStatus(
         phase: .authorizing,
-        message: state.statusText,
-        deviceName: deviceName,
-        isRecoverable: true
+        detail: .authorizationRequired,
+        recovery: .completeAuthorization
       )
-    case .arming(let deviceName):
+    case .arming:
       return LaunchMonitorProviderStatus(
         phase: .preparing,
-        message: state.statusText,
-        deviceName: deviceName,
-        isRecoverable: true
+        detail: .arming,
+        recovery: .automatic
       )
-    case .ready(let deviceName):
+    case .ready:
       return LaunchMonitorProviderStatus(
         phase: .ready,
-        message: state.statusText,
-        deviceName: deviceName,
-        isRecoverable: true
+        detail: .ready,
+        recovery: .none
       )
     case .stopping:
       return LaunchMonitorProviderStatus(
         phase: .stopping,
-        message: state.statusText,
-        deviceName: nil,
-        isRecoverable: true
+        detail: .stopping,
+        recovery: .automatic
       )
-    case .failed(let message):
+    case .failed:
       return LaunchMonitorProviderStatus(
         phase: .failed,
-        message: message,
-        deviceName: nil,
-        isRecoverable: true
+        detail: .providerFailed,
+        recovery: .restart
       )
     }
   }
@@ -406,45 +524,53 @@ final class MLM2PROLaunchMonitorProviderAdapter: LaunchMonitorProviding {
   private func publish(_ event: LaunchMonitorEvent) {
     switch event {
     case .stateChanged(let state):
-      eventSubject.send(.statusChanged(Self.status(from: state)))
+      emit(.statusChanged(Self.status(from: state)))
     case .discoveredDevice(let id, let name, let rssi):
-      eventSubject.send(
+      emit(
         .deviceDiscovered(
-          LaunchMonitorDeviceCandidate(id: id, name: name, signalStrength: rssi)
-        )
-      )
-    case .deviceTrustRequired(let id, let name):
-      eventSubject.send(
-        .actionRequired(
-          LaunchMonitorProviderActionRequest(
-            id: "mlm2pro.trust.\(id.uuidString.lowercased())",
-            kind: .confirmDeviceTrust,
-            title: "Confirm launch monitor",
-            message: "Confirm that \(name) is your trusted launch monitor.",
-            deviceID: id,
-            challengeID: nil,
-            requiresSecureInput: false
+          LaunchMonitorDeviceCandidate(
+            id: id,
+            displayName: name,
+            signalStrength: rssi
           )
         )
       )
-    case .authorizationRequired(let challenge):
-      eventSubject.send(
+    case .deviceTrustRequired(let id, let name):
+      emit(
+        .actionRequired(
+          .confirmDeviceTrust(deviceID: id, deviceDisplayName: name)
+        )
+      )
+    case .authorizationRequired:
+      emit(
         .statusChanged(
           LaunchMonitorProviderStatus(
             phase: .authorizing,
-            message:
-              "Provider authorization is required for challenge \(challenge.userID).",
-            deviceName: challenge.deviceName,
-            isRecoverable: true
+            detail: .authorizationRequired,
+            recovery: .completeAuthorization
           )
         )
       )
     case .shot(let shot):
-      eventSubject.send(.measurement(Self.measurement(from: shot)))
+      emit(.measurement(Self.measurement(from: shot)))
     case .batteryLevel(let percent):
-      eventSubject.send(.batteryLevel(percent: percent))
-    case .error(let message):
-      eventSubject.send(.failure(message: message))
+      emit(.batteryLevel(percent: percent))
+    case .error:
+      emit(.failure(.providerReported))
     }
+  }
+
+  private func emit(_ event: LaunchMonitorProviderEvent) {
+    let (sequence, overflow) = lastPublishedSequence.addingReportingOverflow(1)
+    guard !overflow else { return }
+
+    lastPublishedSequence = sequence
+    eventSubject.send(
+      LaunchMonitorProviderEventEnvelope(
+        streamID: eventStreamID,
+        sequence: sequence,
+        event: event
+      )
+    )
   }
 }

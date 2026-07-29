@@ -35,9 +35,10 @@ final class MotionAnalysisContractsTests: XCTestCase {
     XCTAssertNotEqual(customMetric, .shoulderTurn)
   }
 
-  func testResultKeepsMetricsAccessibleByPhase() {
+  func testResultKeepsMetricsAccessibleByPhaseAndSource() throws {
     let source = MotionCameraSourceID(rawValue: "iphone-17-pro")
-    let topShoulderTurn = MotionMetricReading(
+    let secondSource = MotionCameraSourceID(rawValue: "continuity-camera")
+    let topShoulderTurn = try MotionMetricReading(
       metricID: .shoulderTurn,
       value: 82,
       unit: .degrees,
@@ -49,7 +50,18 @@ final class MotionAnalysisContractsTests: XCTestCase {
       confidence: 0.84,
       limitations: ["Projected 2D proxy; not a 3D torso rotation."]
     )
-    let impactSway = MotionMetricReading(
+    let secondTopShoulderTurn = try MotionMetricReading(
+      metricID: .shoulderTurn,
+      value: 76,
+      unit: .degrees,
+      phase: .top,
+      sourceID: secondSource,
+      viewpoint: .faceOn,
+      timeRange: MotionTimeRange(startSeconds: 1.08, endSeconds: 1.18),
+      provenance: .derived2D,
+      confidence: 0.8
+    )
+    let impactSway = try MotionMetricReading(
       metricID: .sway,
       value: 0.12,
       unit: .normalizedBodyLength,
@@ -64,12 +76,47 @@ final class MotionAnalysisContractsTests: XCTestCase {
       swingID: UUID(),
       skeletonFrames: [],
       phaseObservations: [],
-      metrics: [topShoulderTurn, impactSway]
+      metrics: [topShoulderTurn, secondTopShoulderTurn, impactSway]
     )
 
-    XCTAssertEqual(result.metrics(for: .top), [topShoulderTurn])
-    XCTAssertEqual(result.metric(.sway, at: .impact), impactSway)
-    XCTAssertNil(result.metric(.earlyExtension, at: .impact))
+    XCTAssertEqual(result.metrics(for: .top), [topShoulderTurn, secondTopShoulderTurn])
+    XCTAssertEqual(
+      result.metrics(matching: .shoulderTurn, at: .top),
+      [topShoulderTurn, secondTopShoulderTurn]
+    )
+    XCTAssertEqual(
+      result.metric(
+        .shoulderTurn,
+        at: .top,
+        from: source,
+        viewpoint: .downTheLine
+      ),
+      topShoulderTurn
+    )
+    XCTAssertEqual(
+      result.metric(
+        .shoulderTurn,
+        at: .top,
+        from: secondSource,
+        viewpoint: .faceOn
+      ),
+      secondTopShoulderTurn
+    )
+    XCTAssertEqual(
+      result.metric(.sway, at: .impact, from: source, viewpoint: .downTheLine),
+      impactSway
+    )
+    XCTAssertNil(
+      result.metric(
+        .earlyExtension,
+        at: .impact,
+        from: source,
+        viewpoint: .downTheLine
+      )
+    )
+    XCTAssertNil(
+      result.metric(.shoulderTurn, at: .top, from: source, viewpoint: .faceOn)
+    )
     XCTAssertTrue(result.metrics(for: .p6).isEmpty)
   }
 
@@ -118,7 +165,7 @@ final class MotionAnalysisContractsTests: XCTestCase {
   }
 
   func testUnavailableMetricRetainsReasonWithoutFabricatingValue() throws {
-    let reading = MotionMetricReading(
+    let reading = try MotionMetricReading(
       metricID: .xFactor,
       value: nil,
       unit: .degrees,
@@ -138,7 +185,106 @@ final class MotionAnalysisContractsTests: XCTestCase {
     XCTAssertNotNil(decoded.unavailableReason)
   }
 
-  func testAppleVisionAdapterStopsVisionNamesAtBoundary() {
+  func testMetricReadingRejectsInvalidConstructionStates() {
+    assertValidationError(.nonFiniteValue) {
+      try makeReading(value: .nan)
+    }
+    for range in [
+      MotionTimeRange(startSeconds: -.infinity, endSeconds: 1),
+      MotionTimeRange(startSeconds: -0.1, endSeconds: 1),
+      MotionTimeRange(startSeconds: 2, endSeconds: 1),
+      MotionTimeRange(startSeconds: 1, endSeconds: .infinity),
+    ] {
+      assertValidationError(.invalidTimeRange) {
+        try makeReading(timeRange: range)
+      }
+    }
+    for confidence in [Double.nan, -.infinity, -0.1, 1.1, .infinity] {
+      assertValidationError(.invalidConfidence) {
+        try makeReading(confidence: confidence)
+      }
+    }
+    assertValidationError(.valueRequired) {
+      try makeReading(value: nil)
+    }
+    assertValidationError(.valueRequired) {
+      try makeReading(value: nil, availability: .limited)
+    }
+    assertValidationError(.unavailableReasonMustBeAbsent) {
+      try makeReading(unavailableReason: "Contradictory reason")
+    }
+    assertValidationError(.unavailableReasonMustBeAbsent) {
+      try makeReading(availability: .limited, unavailableReason: "Contradictory reason")
+    }
+    assertValidationError(.valueMustBeAbsent) {
+      try makeReading(availability: .unavailable, unavailableReason: "No calibrated evidence.")
+    }
+    for reason in [
+      nil,
+      "",
+      " \n\t ",
+      String(repeating: "a", count: MotionMetricReading.maximumUnavailableReasonBytes + 1),
+    ] {
+      assertValidationError(.invalidUnavailableReason) {
+        try makeReading(value: nil, availability: .unavailable, unavailableReason: reason)
+      }
+    }
+  }
+
+  func testMetricReadingAcceptsFiniteBoundaryStates() throws {
+    let available = try makeReading(
+      timeRange: MotionTimeRange(startSeconds: 0, endSeconds: 0),
+      confidence: 0
+    )
+    let limited = try makeReading(availability: .limited, confidence: 1)
+    let unavailable = try makeReading(
+      value: nil,
+      availability: .unavailable,
+      confidence: 0,
+      unavailableReason: String(
+        repeating: "a",
+        count: MotionMetricReading.maximumUnavailableReasonBytes
+      )
+    )
+
+    XCTAssertEqual(available.timeRange, MotionTimeRange(startSeconds: 0, endSeconds: 0))
+    XCTAssertEqual(limited.availability, .limited)
+    XCTAssertNil(unavailable.value)
+  }
+
+  func testMetricReadingDecodingRejectsContradictoryAndInvalidPayloads() throws {
+    let valid = try makeReading()
+    let encoded = try JSONEncoder().encode(valid)
+    let object = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    )
+
+    var contradictory = object
+    contradictory["availability"] = MotionMetricAvailability.unavailable.rawValue
+    assertDecodingRejected(contradictory)
+
+    var invalidConfidence = object
+    invalidConfidence["confidence"] = 1.01
+    assertDecodingRejected(invalidConfidence)
+
+    var invalidTime = object
+    var timeRange = try XCTUnwrap(invalidTime["timeRange"] as? [String: Any])
+    timeRange["startSeconds"] = -0.01
+    invalidTime["timeRange"] = timeRange
+    assertDecodingRejected(invalidTime)
+
+    var nonFinite = object
+    nonFinite["value"] = "NaN"
+    let decoder = JSONDecoder()
+    decoder.nonConformingFloatDecodingStrategy = .convertFromString(
+      positiveInfinity: "Infinity",
+      negativeInfinity: "-Infinity",
+      nan: "NaN"
+    )
+    assertDecodingRejected(nonFinite, decoder: decoder)
+  }
+
+  func testAppleVisionAdapterDerivesFrameMetadataAndStopsVisionNamesAtBoundary() throws {
     let pose = PoseFrame(
       joints: [
         .leftShoulder: PoseJoint(
@@ -147,25 +293,91 @@ final class MotionAnalysisContractsTests: XCTestCase {
           confidence: 0.9
         )
       ],
-      timestamp: CMTime(seconds: 0.5, preferredTimescale: 600)
+      timestamp: CMTime(seconds: 0.5, preferredTimescale: 600),
+      videoOrientation: .degrees270
     )
-    let context = MotionFrameContext(
+    let sourceContext = MotionFrameSourceContext(
       sourceID: MotionCameraSourceID(rawValue: "camera-a"),
       streamSessionID: UUID(),
       viewpoint: .faceOn,
-      sourceTimeSeconds: 0.5,
-      coordinateSpace: .normalizedImage2D,
-      rotationDegrees: 0,
-      isMirrored: false
+      isMirrored: true
     )
 
-    let skeleton = AppleVisionMotionSkeletonAdapter().skeleton(from: pose, context: context)
-    let shoulder = skeleton.joints[MotionJointID(rawValue: "left_shoulder")]
+    let skeleton = try AppleVisionMotionSkeletonAdapter().skeleton(
+      from: pose,
+      sourceContext: sourceContext
+    )
+    let shoulder = skeleton.joints[.leftShoulder]
 
     XCTAssertEqual(shoulder?.position.x, 0.25)
     XCTAssertEqual(shoulder?.position.y, 0.75)
     XCTAssertEqual(shoulder?.confidence ?? 0, 0.9, accuracy: 0.000_001)
     XCTAssertEqual(skeleton.context.sourceID.rawValue, "camera-a")
+    XCTAssertEqual(skeleton.context.sourceTimeSeconds, 0.5, accuracy: 0.000_001)
+    XCTAssertEqual(skeleton.context.coordinateSpace, .normalizedImage2D)
+    XCTAssertEqual(skeleton.context.rotationDegrees, 270)
+    XCTAssertTrue(skeleton.context.isMirrored)
+  }
+
+  func testAppleVisionAdapterRejectsInvalidFrameTime() {
+    let pose = PoseFrame(joints: [:], timestamp: .invalid, videoOrientation: .degrees90)
+    let sourceContext = MotionFrameSourceContext(
+      sourceID: MotionCameraSourceID(rawValue: "camera-a"),
+      streamSessionID: UUID(),
+      viewpoint: .faceOn,
+      isMirrored: false
+    )
+
+    XCTAssertThrowsError(
+      try AppleVisionMotionSkeletonAdapter().skeleton(
+        from: pose,
+        sourceContext: sourceContext
+      )
+    ) { error in
+      XCTAssertEqual(error as? AppleVisionMotionSkeletonAdapterError, .invalidTimestamp)
+    }
+  }
+
+  func testAppleVisionAdapterUsesVersionedMapAndOmitsUnknownJoints() throws {
+    let unknownName = VNHumanBodyPoseObservation.JointName(
+      rawValue: VNRecognizedPointKey(rawValue: "future_joint")
+    )
+    let pose = PoseFrame(
+      joints: [
+        .leftShoulder: PoseJoint(
+          id: "known",
+          location: CGPoint(x: 0.25, y: 0.75),
+          confidence: 0.9
+        ),
+        unknownName: PoseJoint(
+          id: "unknown",
+          location: CGPoint(x: 0.5, y: 0.5),
+          confidence: 0.8
+        ),
+      ],
+      timestamp: CMTime(seconds: 0.5, preferredTimescale: 600)
+    )
+    let adapter = AppleVisionMotionSkeletonAdapter(jointMappingVersion: .vision2DRevision1)
+
+    let skeleton = try adapter.skeleton(
+      from: pose,
+      sourceContext: MotionFrameSourceContext(
+        sourceID: MotionCameraSourceID(rawValue: "camera-a"),
+        streamSessionID: UUID(),
+        viewpoint: .downTheLine,
+        isMirrored: false
+      )
+    )
+
+    XCTAssertEqual(adapter.jointMappingVersion.rawValue, 1)
+    XCTAssertEqual(skeleton.joints.count, 1)
+    XCTAssertNotNil(skeleton.joints[.leftShoulder])
+    XCTAssertNil(
+      AppleVisionMotionSkeletonAdapter.jointID(
+        for: unknownName,
+        version: .vision2DRevision1
+      )
+    )
   }
 
   private func frame(
@@ -195,5 +407,65 @@ final class MotionAnalysisContractsTests: XCTestCase {
 
   private func roundTrip<Value: Codable>(_ value: Value) throws -> Value {
     try JSONDecoder().decode(Value.self, from: JSONEncoder().encode(value))
+  }
+
+  private func makeReading(
+    value: Double? = 1,
+    timeRange: MotionTimeRange = MotionTimeRange(startSeconds: 1, endSeconds: 1),
+    availability: MotionMetricAvailability = .available,
+    confidence: Double = 0.8,
+    unavailableReason: String? = nil
+  ) throws -> MotionMetricReading {
+    try MotionMetricReading(
+      metricID: .shoulderTurn,
+      value: value,
+      unit: .degrees,
+      phase: .top,
+      sourceID: MotionCameraSourceID(rawValue: "test-camera"),
+      viewpoint: .faceOn,
+      timeRange: timeRange,
+      provenance: .derived2D,
+      availability: availability,
+      confidence: confidence,
+      unavailableReason: unavailableReason
+    )
+  }
+
+  private func assertValidationError(
+    _ expected: MotionMetricReadingValidationError,
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    _ operation: () throws -> MotionMetricReading
+  ) {
+    XCTAssertThrowsError(try operation(), file: file, line: line) { error in
+      XCTAssertEqual(
+        error as? MotionMetricReadingValidationError,
+        expected,
+        file: file,
+        line: line
+      )
+    }
+  }
+
+  private func assertDecodingRejected(
+    _ object: [String: Any],
+    decoder: JSONDecoder = JSONDecoder(),
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    do {
+      let data = try JSONSerialization.data(withJSONObject: object)
+      XCTAssertThrowsError(
+        try decoder.decode(MotionMetricReading.self, from: data),
+        file: file,
+        line: line
+      ) { error in
+        guard case DecodingError.dataCorrupted = error else {
+          return XCTFail("Expected dataCorrupted, got \(error)", file: file, line: line)
+        }
+      }
+    } catch {
+      XCTFail("Could not create JSON fixture: \(error)", file: file, line: line)
+    }
   }
 }

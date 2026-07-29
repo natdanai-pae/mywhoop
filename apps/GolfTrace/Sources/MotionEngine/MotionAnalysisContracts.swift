@@ -52,6 +52,26 @@ struct MotionCoordinateSpaceID: RawRepresentable, Codable, Hashable, Sendable {
 
 struct MotionJointID: RawRepresentable, Codable, Hashable, Sendable {
   let rawValue: String
+
+  static let nose = MotionJointID(rawValue: "nose")
+  static let leftEye = MotionJointID(rawValue: "left_eye")
+  static let rightEye = MotionJointID(rawValue: "right_eye")
+  static let leftEar = MotionJointID(rawValue: "left_ear")
+  static let rightEar = MotionJointID(rawValue: "right_ear")
+  static let neck = MotionJointID(rawValue: "neck")
+  static let leftShoulder = MotionJointID(rawValue: "left_shoulder")
+  static let rightShoulder = MotionJointID(rawValue: "right_shoulder")
+  static let leftElbow = MotionJointID(rawValue: "left_elbow")
+  static let rightElbow = MotionJointID(rawValue: "right_elbow")
+  static let leftWrist = MotionJointID(rawValue: "left_wrist")
+  static let rightWrist = MotionJointID(rawValue: "right_wrist")
+  static let root = MotionJointID(rawValue: "root")
+  static let leftHip = MotionJointID(rawValue: "left_hip")
+  static let rightHip = MotionJointID(rawValue: "right_hip")
+  static let leftKnee = MotionJointID(rawValue: "left_knee")
+  static let rightKnee = MotionJointID(rawValue: "right_knee")
+  static let leftAnkle = MotionJointID(rawValue: "left_ankle")
+  static let rightAnkle = MotionJointID(rawValue: "right_ankle")
 }
 
 struct MotionPoint: Codable, Equatable, Sendable {
@@ -83,6 +103,18 @@ struct MotionFrameContext: Codable, Equatable, Sendable {
   let sourceTimeSeconds: Double
   let coordinateSpace: MotionCoordinateSpaceID
   let rotationDegrees: Int
+  let isMirrored: Bool
+}
+
+/// Source provenance supplied to adapters whose frame type already carries its
+/// own timestamp, orientation, and coordinate-space semantics.
+///
+/// Keeping this input source-only prevents callers from pairing a pose with
+/// contradictory sample metadata.
+struct MotionFrameSourceContext: Codable, Equatable, Sendable {
+  let sourceID: MotionCameraSourceID
+  let streamSessionID: UUID
+  let viewpoint: MotionCameraViewpoint
   let isMirrored: Bool
 }
 
@@ -143,7 +175,19 @@ struct MotionTimeRange: Codable, Equatable, Sendable {
   let endSeconds: Double
 }
 
+enum MotionMetricReadingValidationError: Error, Equatable {
+  case nonFiniteValue
+  case invalidTimeRange
+  case invalidConfidence
+  case valueRequired
+  case valueMustBeAbsent
+  case unavailableReasonMustBeAbsent
+  case invalidUnavailableReason
+}
+
 struct MotionMetricReading: Codable, Equatable, Identifiable, Sendable {
+  static let maximumUnavailableReasonBytes = 512
+
   let id: UUID
   let metricID: MotionMetricID
   let value: Double?
@@ -174,7 +218,15 @@ struct MotionMetricReading: Codable, Equatable, Identifiable, Sendable {
     confidence: Double,
     unavailableReason: String? = nil,
     limitations: [String] = []
-  ) {
+  ) throws {
+    try Self.validate(
+      value: value,
+      timeRange: timeRange,
+      availability: availability,
+      confidence: confidence,
+      unavailableReason: unavailableReason
+    )
+
     self.id = id
     self.metricID = metricID
     self.value = value
@@ -189,6 +241,84 @@ struct MotionMetricReading: Codable, Equatable, Identifiable, Sendable {
     self.confidence = confidence
     self.unavailableReason = unavailableReason
     self.limitations = limitations
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+
+    do {
+      try self.init(
+        id: container.decode(UUID.self, forKey: .id),
+        metricID: container.decode(MotionMetricID.self, forKey: .metricID),
+        value: container.decodeIfPresent(Double.self, forKey: .value),
+        unit: container.decode(MotionMetricUnitID.self, forKey: .unit),
+        phase: container.decodeIfPresent(GolfSwingPhase.self, forKey: .phase),
+        sourceID: container.decode(MotionCameraSourceID.self, forKey: .sourceID),
+        viewpoint: container.decode(MotionCameraViewpoint.self, forKey: .viewpoint),
+        timeRange: container.decode(MotionTimeRange.self, forKey: .timeRange),
+        provenance: container.decode(MotionValueProvenance.self, forKey: .provenance),
+        comparisonScope: container.decode(
+          MotionMetricComparisonScope.self,
+          forKey: .comparisonScope
+        ),
+        availability: container.decode(MotionMetricAvailability.self, forKey: .availability),
+        confidence: container.decode(Double.self, forKey: .confidence),
+        unavailableReason: container.decodeIfPresent(String.self, forKey: .unavailableReason),
+        limitations: container.decode([String].self, forKey: .limitations)
+      )
+    } catch let error as MotionMetricReadingValidationError {
+      throw DecodingError.dataCorrupted(
+        DecodingError.Context(
+          codingPath: decoder.codingPath,
+          debugDescription: "Invalid motion metric reading: \(error)",
+          underlyingError: error
+        )
+      )
+    }
+  }
+
+  private static func validate(
+    value: Double?,
+    timeRange: MotionTimeRange,
+    availability: MotionMetricAvailability,
+    confidence: Double,
+    unavailableReason: String?
+  ) throws {
+    if let value, !value.isFinite {
+      throw MotionMetricReadingValidationError.nonFiniteValue
+    }
+    guard
+      timeRange.startSeconds.isFinite,
+      timeRange.endSeconds.isFinite,
+      timeRange.startSeconds >= 0,
+      timeRange.endSeconds >= timeRange.startSeconds
+    else {
+      throw MotionMetricReadingValidationError.invalidTimeRange
+    }
+    guard confidence.isFinite, (0...1).contains(confidence) else {
+      throw MotionMetricReadingValidationError.invalidConfidence
+    }
+
+    switch availability {
+    case .available, .limited:
+      guard value != nil else {
+        throw MotionMetricReadingValidationError.valueRequired
+      }
+      guard unavailableReason == nil else {
+        throw MotionMetricReadingValidationError.unavailableReasonMustBeAbsent
+      }
+    case .unavailable:
+      guard value == nil else {
+        throw MotionMetricReadingValidationError.valueMustBeAbsent
+      }
+      guard
+        let unavailableReason,
+        !unavailableReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        unavailableReason.utf8.count <= maximumUnavailableReasonBytes
+      else {
+        throw MotionMetricReadingValidationError.invalidUnavailableReason
+      }
+    }
   }
 }
 
@@ -258,8 +388,25 @@ struct MotionAnalysisResult: Codable, Equatable, Sendable {
     metrics.filter { $0.phase == phase }
   }
 
-  func metric(_ metricID: MotionMetricID, at phase: GolfSwingPhase) -> MotionMetricReading? {
-    metrics.first { $0.metricID == metricID && $0.phase == phase }
+  /// Returns every reading matching the metric and phase across camera sources.
+  func metrics(
+    matching metricID: MotionMetricID,
+    at phase: GolfSwingPhase
+  ) -> [MotionMetricReading] {
+    metrics.filter { $0.metricID == metricID && $0.phase == phase }
+  }
+
+  /// Returns the reading for one explicitly selected camera source.
+  func metric(
+    _ metricID: MotionMetricID,
+    at phase: GolfSwingPhase,
+    from sourceID: MotionCameraSourceID,
+    viewpoint: MotionCameraViewpoint
+  ) -> MotionMetricReading? {
+    metrics.first {
+      $0.metricID == metricID && $0.phase == phase && $0.sourceID == sourceID
+        && $0.viewpoint == viewpoint
+    }
   }
 }
 

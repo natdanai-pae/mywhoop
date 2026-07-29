@@ -1,7 +1,8 @@
 # Launch Monitor Provider Architecture
 
-Status: proposed provider-neutral architecture, with Milestone 1 limited to additive
-contracts, an MLM2PRO adapter boundary, and tests.
+Status: proposed provider-neutral target architecture, with the Milestone 1 additive
+contracts, MLM2PRO adapter boundary, and focused tests implemented. The neutral store and UI
+migration remain future work.
 
 GolfTrace should treat a launch monitor as an optional measurement provider. Motion
 analysis, camera capture, replay, history, and AI Coach must continue to work when no launch
@@ -194,6 +195,14 @@ The provider emits a new capability snapshot whenever availability changes. Cons
 No common interface should force unsupported metrics. A provider that reports ball speed
 and total spin but not club path remains fully valid.
 
+The implemented Milestone 1 snapshot uses
+`LaunchMonitorMetricUnavailabilityReason` for unavailable entries. Capability reasons are
+therefore bounded to a typed vocabulary such as unsupported-by-provider,
+unavailable-from-device, authorization-required, or prerequisite-unavailable; adapters do
+not publish unrestricted reason text through this boundary. The current MLM2PRO adapter's
+`unavailableReasons` map is empty, and the focused suite does not yet include a populated
+typed-reason fixture.
+
 ## 6. Metric and measurement model
 
 Metric identifiers are extensible raw values with a documented canonical catalog:
@@ -285,10 +294,18 @@ enum LaunchMonitorProviderEvent: Sendable {
 }
 ```
 
-The exact concurrency surface may use Combine while the current app remains Combine-based.
-The semantic contract is more important than choosing `AsyncStream` in Milestone 1:
+Milestone 1 uses Combine to match the current app:
+`LaunchMonitorProviding.eventPublisher` publishes
+`LaunchMonitorProviderEventEnvelope`. Each provider instance exposes a typed,
+process-local `eventStreamID`; it is consumer binding identity, not a provider session,
+measurement provenance, or durable deduplication key. The MLM2PRO compatibility adapter
+starts its envelope sequence at one and increments monotonically without wrapping.
+`LaunchMonitorProviderEventCursor` accepts one stream and rejects sequence zero,
+wrong-stream, duplicate, and out-of-order envelopes without advancing its cursor.
 
-- events are ordered per provider session;
+Longer-term provider/store conformance should require:
+
+- events are ordered within one process-local provider event stream;
 - `start` and `stop` are idempotent;
 - stopping completes or times out bounded cleanup;
 - measurements are delivered only when the provider reports ready;
@@ -313,9 +330,15 @@ idle
   -> idle
 ```
 
-`degraded` and `failed` retain a recovery classification. A status includes provider ID,
-session ID, optional safe device descriptor, progress, and a localization key. Domain state
-must not contain Thai or English presentation sentences.
+In the implemented Milestone 1 boundary, `LaunchMonitorProviderStatus` contains only typed
+`phase`, `detail`, and `recovery` values. It carries no free-form message or device name.
+The compatibility adapter deliberately drops authorization user ID/device name and failed
+state text while mapping the concrete controller. Device display names cross the boundary
+only in discovery candidates and the trust-confirmation action where the UI genuinely needs
+them.
+
+The longer-term store may add provider/session identity and localized presentation lookup,
+but domain state must not contain unrestricted Thai or English presentation sentences.
 
 ### Actions and challenges
 
@@ -336,6 +359,10 @@ Milestone 1 exposes only the current safe trust commands. The existing MLM2PRO c
 workflow remains owned by `LaunchMonitorController` and its current settings path; it is not
 republished as a generic secure-input action. A later store migration must define an opaque
 credential-response boundary before moving that workflow.
+
+The current safe request is an associated-value enum case,
+`confirmDeviceTrust(deviceID:deviceDisplayName:)`, rather than a structure containing
+free-form title/message fields and unrelated nullable challenge or secure-input fields.
 
 ### Errors
 
@@ -358,9 +385,15 @@ bounded redacted provider code, never credentials or unrestricted error payloads
 existing MLM2PRO diagnostic trace is a strong pattern: fixed event labels, bounded size,
 atomic replacement, and redacted states.
 
+Milestone 1 publishes the typed `LaunchMonitorProviderFailure.providerReported` case for a
+legacy controller error and discards the controller's raw error string. More granular safe
+failure categories require typed evidence from a future adapter revision; they must not be
+guessed by parsing presentation text.
+
 ## 9. Store: the UI boundary
 
-`LaunchMonitorStore` is the only object normal dashboard and settings views observe:
+In the target architecture, `LaunchMonitorStore` will be the only object normal dashboard
+and settings views observe:
 
 ```swift
 @MainActor
@@ -375,7 +408,7 @@ protocol LaunchMonitorStoreProtocol: ObservableObject {
 }
 ```
 
-The store:
+The store will:
 
 - selects and owns one active provider session;
 - folds provider events into immutable view state;
@@ -388,6 +421,12 @@ The store:
 
 The UI may display a provider's descriptor name and icon. “The UI does not know the provider”
 means it does not cast, import, branch on, or call provider-specific APIs.
+
+`LaunchMonitorStore` is still a target boundary, not the current composition root. Milestone
+1 does not construct the MLM2PRO adapter for the dashboard: `GolfTraceApp`, settings, and the
+dashboard continue to observe and call the concrete `LaunchMonitorController`. The envelope
+and cursor contracts are tested seams for that later migration, not a claim that stale-event
+filtering is already wired into the UI runtime.
 
 ## 10. Matching and deduplication
 
@@ -403,6 +442,11 @@ provider ID
 + provider session identity
 + provider measurement/shot sequence
 ```
+
+The strong tuple is represented by a structured, Codable, hashable
+`LaunchMonitorMeasurementDeduplicationKey`, never by concatenating strings. Field boundaries
+therefore participate in equality and hashing even when a provider identifier contains a
+delimiter character.
 
 When a provider has no stable sequence, calculate a bounded content fingerprint from
 normalized metrics, device time, and payload hash. Receipt time alone is not an identity.
@@ -522,7 +566,7 @@ improvement history without an explicit test marker.
 
 - provider ID and descriptor are stable;
 - start/stop are idempotent;
-- event ordering and stale-session rejection;
+- event ordering and stale event-stream rejection;
 - capability changes do not fabricate values;
 - every emitted metric has a valid unit and finite value;
 - measured and derived origins remain distinct;
@@ -540,12 +584,20 @@ improvement history without an explicit test marker.
 - errors map to stable safe categories;
 - simulator data is visibly marked simulated.
 
+The implemented Milestone 1 focused suite covers extensible IDs, current six-field MLM2PRO
+normalization, absent durable deduplication identity, structured-key delimiter collisions,
+typed/redacted status and failure mapping, associated-value trust action, one-stream
+monotonic envelope sequencing, and cursor rejection of zero-sequence, wrong-stream,
+duplicate, and out-of-order envelopes. It does not claim that a neutral store or second
+provider is running in the app.
+
 ### Matching tests
 
 - measurement before and after swing;
 - exact-window boundaries;
 - equal-distance deterministic tie;
 - duplicate sequence across reconnect/session boundaries;
+- differently partitioned identifier fields that would collide if joined with a delimiter;
 - device-time drift and receipt latency;
 - one shot near two swings;
 - queue bounds and restore after restart.
@@ -567,13 +619,17 @@ accurate.
 
 ### Milestone 1 — additive contracts
 
-- add provider ID, descriptor, status, capability, normalized metric, measurement, and
-  provider protocol contracts in
+This additive contract/test slice is implemented; it is not the runtime store migration.
+
+- add provider ID, descriptor, typed status detail/recovery, typed capability-unavailability
+  reason, typed failure, associated-value trust action, normalized metric, measurement,
+  event envelope/cursor, and provider protocol contracts in
   `apps/GolfTrace/Sources/LaunchMonitor/LaunchMonitorProviderContracts.swift`;
 - add an adapter/conformance path for the existing MLM2PRO controller;
 - add tests in
   `apps/GolfTrace/Tests/LaunchMonitorProviderContractsTests.swift` for extensible IDs,
-  capability negotiation, SI values, absent fields, mapping, and lifecycle semantics;
+  capability declaration and missing metrics, SI values, absent fields, typed/redacted
+  mapping, event sequencing, stale rejection, deduplication identity, and lifecycle semantics;
 - keep `GolfTraceApp`, dashboard/settings, current `LaunchMonitorShot`,
   `LaunchMonitorConnectionState`, matcher, persistence, and AI behavior unchanged.
 
@@ -583,10 +639,12 @@ The implemented Milestone 1 vocabulary is:
 |---|---|
 | provider and metric IDs | `LaunchMonitorProviderID`, `LaunchMonitorMetricID`, `LaunchMonitorUnitID` |
 | normalized result | `LaunchMonitorMetricValue`, `LaunchMonitorMetricOrigin`, `LaunchMonitorMeasurement` |
-| runtime capability | `LaunchMonitorCapabilitySnapshot` and `capabilitiesChanged` |
-| lifecycle | `LaunchMonitorProviderConnectionPhase`, `LaunchMonitorProviderStatus`, `LaunchMonitorProviderEvent` |
-| safe user action | `LaunchMonitorProviderActionRequest`, `LaunchMonitorProviderCommand` |
-| provider boundary | `LaunchMonitorProviding`, using Combine to match the current app |
+| structured deduplication identity | `LaunchMonitorMeasurementDeduplicationKey` |
+| runtime capability | `LaunchMonitorCapabilitySnapshot`, typed `LaunchMonitorMetricUnavailabilityReason`, and `capabilitiesChanged` |
+| lifecycle | `LaunchMonitorProviderConnectionPhase`, typed `LaunchMonitorProviderStatusDetail`/`LaunchMonitorProviderRecovery`, `LaunchMonitorProviderStatus`, typed `LaunchMonitorProviderFailure`, and `LaunchMonitorProviderEvent` |
+| safe user action | associated-value `LaunchMonitorProviderActionRequest` and `LaunchMonitorProviderCommand` |
+| event delivery | process-local `LaunchMonitorProviderEventStreamID`, `LaunchMonitorProviderEventEnvelope`, and `LaunchMonitorProviderEventCursor` |
+| provider boundary | `LaunchMonitorProviding` with `eventStreamID` and an envelope publisher using Combine to match the current app |
 | compatibility adapter | `MLM2PROLaunchMonitorProviderAdapter` |
 
 The adapter normalizes the current six measured MLM2PRO fields and does not copy raw BLE
@@ -595,8 +653,14 @@ from the process-local MLM2PRO counter alone: `deduplicationKey` is `nil` until 
 supply both provider-device and provider-session identity. This prevents a convenient local
 counter from being represented as a cross-restart identity.
 
-The current UI is not constructed with the adapter in M1. Its event mapping and normalized
-measurement path are exercised by
+When a provider can supply those identity components, `deduplicationKey` is a structured
+value whose provider, device, session, and shot fields remain distinct. The focused tests
+include a delimiter-collision fixture proving that differently partitioned fields do not
+collapse to one key.
+
+The current UI is not constructed with the adapter in M1. The adapter's typed/redacted event
+mapping, envelope sequence, normalized measurement path, and the consumer cursor are
+exercised by
 `apps/GolfTrace/Tests/LaunchMonitorProviderContractsTests.swift` before the later store
 migration.
 
@@ -625,11 +689,19 @@ migration.
 
 1. Domain contracts do not import CoreBluetooth, SwiftUI, or a vendor SDK.
 2. Provider IDs allow MLM2PRO, Garmin, TrackMan, Foresight, Uneekor, and future unknown IDs.
-3. Capabilities distinguish measured, derived, and unavailable metrics.
+3. Capabilities distinguish measured, derived, and unavailable metrics, with unavailable
+   reasons represented by a typed vocabulary rather than arbitrary text.
 4. Normalized values use explicit canonical units and retain provenance.
 5. The existing MLM2PRO implementation has an additive adapter or conformance boundary.
-6. Current UI, persistence schema, matching window, wire protocol, and runtime behavior are
+6. Status detail/recovery, failure, and trust action are typed; authorization identity and
+   raw provider error text are not emitted as status/failure payloads.
+7. Every emitted provider event is wrapped with a process-local stream ID and monotonically
+   increasing sequence; the consumer cursor rejects sequence zero, wrong-stream, duplicate,
+   and out-of-order envelopes.
+8. Current UI, persistence schema, matching window, wire protocol, and runtime behavior are
    unchanged.
-7. Focused tests cover encoding, unknown IDs, mapping, lifecycle, missing metrics, and
-   deduplication identity rules appropriate to the implemented slice.
-8. Existing tests still pass.
+9. Focused tests cover encoding, unknown IDs, normalized mapping, typed redaction, envelope
+   sequencing, stale rejection, missing metrics, structured deduplication identity, and
+   identifier field-boundary collision behavior appropriate to the implemented slice.
+10. The focused contract tests pass; real-device authorization, connectivity, and accuracy
+    remain separate UAT.

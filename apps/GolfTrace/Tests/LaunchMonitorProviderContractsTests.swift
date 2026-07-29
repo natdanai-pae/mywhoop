@@ -65,8 +65,24 @@ final class LaunchMonitorProviderContractsTests: XCTestCase {
       metrics: []
     )
 
-    XCTAssertEqual(mlm.deduplicationKey, "mlm2pro:device-a:session-1:7")
-    XCTAssertEqual(garmin.deduplicationKey, "garmin:device-a:session-1:7")
+    XCTAssertEqual(
+      mlm.deduplicationKey,
+      LaunchMonitorMeasurementDeduplicationKey(
+        providerID: .mlm2Pro,
+        providerDeviceID: "device-a",
+        providerSessionID: "session-1",
+        providerShotID: "7"
+      )
+    )
+    XCTAssertEqual(
+      garmin.deduplicationKey,
+      LaunchMonitorMeasurementDeduplicationKey(
+        providerID: .garmin,
+        providerDeviceID: "device-a",
+        providerSessionID: "session-1",
+        providerShotID: "7"
+      )
+    )
     XCTAssertNotEqual(mlm.deduplicationKey, garmin.deduplicationKey)
 
     let legacy = LaunchMonitorMeasurement(
@@ -78,26 +94,62 @@ final class LaunchMonitorProviderContractsTests: XCTestCase {
     XCTAssertNil(legacy.deduplicationKey)
   }
 
+  func testStructuredDeduplicationKeyPreservesFieldBoundaries() throws {
+    let first = LaunchMonitorMeasurementDeduplicationKey(
+      providerID: .mlm2Pro,
+      providerDeviceID: "device:a",
+      providerSessionID: "session",
+      providerShotID: "7"
+    )
+    let second = LaunchMonitorMeasurementDeduplicationKey(
+      providerID: .mlm2Pro,
+      providerDeviceID: "device",
+      providerSessionID: "a:session",
+      providerShotID: "7"
+    )
+
+    XCTAssertNotEqual(first, second)
+    XCTAssertEqual(Set([first, second]).count, 2)
+    XCTAssertEqual(try roundTrip(first), first)
+  }
+
   @MainActor
-  func testMLM2PROStateMapsToVendorNeutralPhase() {
+  func testMLM2PROStateMapsToTypedVendorNeutralStatus() throws {
     let ready = MLM2PROLaunchMonitorProviderAdapter.status(
       from: .ready(deviceName: "My MLM2PRO")
     )
     let authorizing = MLM2PROLaunchMonitorProviderAdapter.status(
       from: .awaitingAuthorization(deviceName: "My MLM2PRO", userID: 123)
     )
+    let failed = MLM2PROLaunchMonitorProviderAdapter.status(
+      from: .failed(message: "raw provider failure text")
+    )
 
     XCTAssertEqual(ready.phase, .ready)
-    XCTAssertEqual(ready.deviceName, "My MLM2PRO")
+    XCTAssertEqual(ready.detail, .ready)
+    XCTAssertEqual(ready.recovery, .none)
     XCTAssertEqual(authorizing.phase, .authorizing)
-    XCTAssertEqual(authorizing.deviceName, "My MLM2PRO")
+    XCTAssertEqual(authorizing.detail, .authorizationRequired)
+    XCTAssertEqual(authorizing.recovery, .completeAuthorization)
+    XCTAssertEqual(failed.detail, .providerFailed)
+    XCTAssertEqual(failed.recovery, .restart)
+
+    let encoded = try JSONEncoder().encode([ready, authorizing, failed])
+    let json = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+    XCTAssertFalse(json.contains("My MLM2PRO"))
+    XCTAssertFalse(json.contains("123"))
+    XCTAssertFalse(json.contains("raw provider failure text"))
   }
 
   @MainActor
-  func testAdapterPublishesSanitizedActionsAndMeasurements() {
+  func testAdapterPublishesSanitizedSequencedEnvelopes() throws {
     let controller = LaunchMonitorController()
-    let provider = MLM2PROLaunchMonitorProviderAdapter(controller: controller)
-    var received: [LaunchMonitorProviderEvent] = []
+    let streamID = LaunchMonitorProviderEventStreamID()
+    let provider = MLM2PROLaunchMonitorProviderAdapter(
+      controller: controller,
+      eventStreamID: streamID
+    )
+    var received: [LaunchMonitorProviderEventEnvelope] = []
     var cancellables: Set<AnyCancellable> = []
     provider.eventPublisher
       .sink { received.append($0) }
@@ -107,7 +159,10 @@ final class LaunchMonitorProviderContractsTests: XCTestCase {
     controller.events.send(.deviceTrustRequired(id: deviceID, name: "Practice MLM2PRO"))
     controller.events.send(
       .authorizationRequired(
-        MLM2PROAuthorizationChallenge(userID: 77, deviceName: "Practice MLM2PRO")
+        MLM2PROAuthorizationChallenge(
+          userID: 4_294_967_295,
+          deviceName: "AUTH-DEVICE-SECRET"
+        )
       )
     )
     controller.events.send(
@@ -125,31 +180,68 @@ final class LaunchMonitorProviderContractsTests: XCTestCase {
         )
       )
     )
+    controller.events.send(.error(message: "RAW-ERROR-SECRET"))
 
-    guard case .actionRequired(let trust) = received[0] else {
+    XCTAssertEqual(received.map(\.streamID), Array(repeating: streamID, count: 4))
+    XCTAssertEqual(received.map(\.sequence), [1, 2, 3, 4])
+
+    guard case .actionRequired(let trust) = received[0].event else {
       return XCTFail("Expected trust action")
     }
-    XCTAssertEqual(trust.kind, .confirmDeviceTrust)
-    XCTAssertEqual(trust.deviceID, deviceID)
-    XCTAssertFalse(trust.requiresSecureInput)
+    guard case .confirmDeviceTrust(let trustedDeviceID, let deviceDisplayName) = trust else {
+      return XCTFail("Expected associated-value trust action")
+    }
+    XCTAssertEqual(trustedDeviceID, deviceID)
+    XCTAssertEqual(deviceDisplayName, "Practice MLM2PRO")
 
-    guard case .statusChanged(let authorization) = received[1] else {
+    guard case .statusChanged(let authorization) = received[1].event else {
       return XCTFail("Expected authorization status")
     }
     XCTAssertEqual(authorization.phase, .authorizing)
-    XCTAssertEqual(authorization.deviceName, "Practice MLM2PRO")
+    XCTAssertEqual(authorization.detail, .authorizationRequired)
+    XCTAssertEqual(authorization.recovery, .completeAuthorization)
 
-    guard case .measurement(let measurement) = received[2] else {
+    guard case .measurement(let measurement) = received[2].event else {
       return XCTFail("Expected measurement")
     }
     XCTAssertEqual(measurement.providerID, .mlm2Pro)
     XCTAssertEqual(measurement.providerShotID, "9")
 
-    let encoded = try? JSONEncoder().encode(authorization)
-    let publishedJSON = encoded.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    XCTAssertFalse(publishedJSON.lowercased().contains("token"))
-    XCTAssertFalse(publishedJSON.lowercased().contains("credential"))
+    guard case .failure(let failure) = received[3].event else {
+      return XCTFail("Expected typed failure")
+    }
+    XCTAssertEqual(failure, .providerReported)
+
+    let authorizationJSON = try XCTUnwrap(
+      String(data: JSONEncoder().encode(authorization), encoding: .utf8)
+    )
+    let failureJSON = try XCTUnwrap(
+      String(data: JSONEncoder().encode(failure), encoding: .utf8)
+    )
+    let publishedJSON = authorizationJSON + failureJSON
+    XCTAssertFalse(publishedJSON.contains("4294967295"))
+    XCTAssertFalse(publishedJSON.contains("AUTH-DEVICE-SECRET"))
+    XCTAssertFalse(publishedJSON.contains("RAW-ERROR-SECRET"))
     _ = cancellables
+  }
+
+  func testEventCursorRejectsWrongStreamDuplicateAndOutOfOrderEnvelopes() {
+    let expectedStream = LaunchMonitorProviderEventStreamID()
+    let otherStream = LaunchMonitorProviderEventStreamID()
+    var cursor = LaunchMonitorProviderEventCursor(streamID: expectedStream)
+
+    let second = envelope(streamID: expectedStream, sequence: 2, percent: 20)
+    XCTAssertEqual(cursor.accept(second), .batteryLevel(percent: 20))
+    XCTAssertNil(cursor.accept(second))
+    XCTAssertNil(cursor.accept(envelope(streamID: expectedStream, sequence: 1, percent: 10)))
+    XCTAssertNil(cursor.accept(envelope(streamID: otherStream, sequence: 3, percent: 30)))
+    XCTAssertNil(cursor.accept(envelope(streamID: expectedStream, sequence: 0, percent: 0)))
+    XCTAssertEqual(
+      cursor.accept(envelope(streamID: expectedStream, sequence: 3, percent: 30)),
+      .batteryLevel(percent: 30)
+    )
+    XCTAssertEqual(cursor.streamID, expectedStream)
+    XCTAssertEqual(cursor.lastAcceptedSequence, 3)
   }
 
   @MainActor
@@ -185,6 +277,18 @@ final class LaunchMonitorProviderContractsTests: XCTestCase {
   private func roundTrip<Value: Codable>(_ value: Value) throws -> Value {
     try JSONDecoder().decode(Value.self, from: JSONEncoder().encode(value))
   }
+
+  private func envelope(
+    streamID: LaunchMonitorProviderEventStreamID,
+    sequence: UInt64,
+    percent: Int
+  ) -> LaunchMonitorProviderEventEnvelope {
+    LaunchMonitorProviderEventEnvelope(
+      streamID: streamID,
+      sequence: sequence,
+      event: .batteryLevel(percent: percent)
+    )
+  }
 }
 
 @MainActor
@@ -202,8 +306,9 @@ private final class FakeLaunchMonitorProvider: LaunchMonitorProviding {
     appDerivedMetrics: [],
     unavailableReasons: [:]
   )
+  let eventStreamID = LaunchMonitorProviderEventStreamID()
 
-  var eventPublisher: AnyPublisher<LaunchMonitorProviderEvent, Never> {
+  var eventPublisher: AnyPublisher<LaunchMonitorProviderEventEnvelope, Never> {
     Empty().eraseToAnyPublisher()
   }
 

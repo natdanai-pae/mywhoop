@@ -1,12 +1,14 @@
 # Motion Engine Architecture
 
-Status: proposed architecture, with Milestone 1 limited to additive domain contracts and tests.
+Status: proposed architecture, with the Milestone 1 additive domain contracts and focused
+tests implemented.
 
 This document designs GolfTrace's motion-analysis boundary. It does not claim that the
-listed three-dimensional metrics or ten swing phases are implemented today. The immediate
-goal is to give the existing pipeline stable, reusable domain types so later work can add
-Face-On, Down-The-Line, and synchronized multi-camera analysis without moving UI concerns
-into the analysis code.
+listed three-dimensional metrics or full live ten-phase detection are implemented today.
+The canonical ten-phase vocabulary is implemented, but the immediate runtime still produces
+partial legacy phase evidence. The contracts give the existing pipeline stable, reusable
+domain types so later work can add validated phase detection, Face-On, Down-The-Line, and
+synchronized multi-camera analysis without moving UI concerns into the analysis code.
 
 ## 1. Current implementation
 
@@ -234,9 +236,10 @@ struct MotionSkeletonFrame: Codable, Equatable, Sendable {
 }
 ```
 
-The neutral joint vocabulary contains anatomical joints, not Vision identifiers. The Vision
-adapter maps recognized points to that vocabulary and preserves unknown or unsupported
-joints as absent. Absence is different from a coordinate of zero.
+The neutral joint vocabulary contains stable anatomical `MotionJointID` constants, not
+Vision identifiers. The Apple Vision adapter uses an explicit revisioned mapping table and
+omits unknown or unsupported joints. Mapping changes require a new mapping version and
+focused compatibility tests. Absence is different from a coordinate of zero.
 
 Confidence describes detector evidence, not whether a golfer's movement is good. Consumers
 may require different confidence floors, and the floor used must be recorded in the metric
@@ -298,6 +301,12 @@ Required behavior:
 `PoseDetector` already implements a useful latest-frame scheduler. The first adapter should
 wrap or translate its output, not duplicate the Vision request or change its scheduling.
 
+The Milestone 1 Apple Vision adapter accepts a `PoseFrame` plus source-only
+identity/session/viewpoint context. Timestamp and orientation come exclusively from the
+exact frame, and Vision output is identified as normalized image-space 2D. Invalid,
+non-finite, or negative media time fails conversion; the adapter does not substitute a
+default timestamp or accept caller-supplied coordinate/orientation metadata.
+
 ## 6. Skeleton processing
 
 Skeleton processing is a sequence of explicit, testable transforms:
@@ -339,33 +348,34 @@ enum GolfSwingPhase: String, CaseIterable, Codable, Sendable {
 }
 ```
 
+This enum is implemented and its exact order is tested. It is a vocabulary, not evidence
+that every phase was observed. The current live pipeline still emits only Address, estimated
+Top, estimated Impact, and sometimes Finish through its legacy path. Full live ten-phase
+detection, confidence calibration, and validation remain later algorithm work.
+
 Definitions must be versioned in the detector documentation. At minimum, a definition states
 the anatomical or club evidence used, camera requirements, and ambiguity policy. For
 example, Impact cannot be considered measured if the implementation only observes the
 hands returning near their address height.
 
-A phase detector returns candidates:
+The current domain observation contract can carry evidence from a future detector:
 
 ```swift
-struct SwingPhaseObservation: Codable, Equatable, Sendable {
+struct SwingPhaseObservation: Codable, Equatable, Identifiable, Sendable {
+  let id: UUID
   let phase: GolfSwingPhase
-  let time: SwingRelativeTime
+  let sourceID: MotionCameraSourceID
+  let viewpoint: MotionCameraViewpoint
+  let sourceTimeSeconds: Double
   let confidence: Double
-  let sourceIDs: [MotionCameraSourceID]
-  let evidenceFrameIDs: [MotionFrameID]
-  let provenance: MotionAlgorithmProvenance
-  let limitations: [MotionLimitation]
-}
-
-struct SwingPhaseDetectionResult: Codable, Equatable, Sendable {
-  let observations: [SwingPhaseObservation]
-  let unavailablePhases: [SwingPhase: MotionUnavailableReason]
+  let provenance: MotionValueProvenance
+  let limitations: [String]
 }
 ```
 
-The sequence validator checks ordering and incompatible duplicates, but it does not invent
-missing phases. A result containing Address, Top, and Finish is valid partial evidence. The
-UI may render placeholders, but placeholders never become observations.
+A future sequence validator must check ordering and incompatible duplicates without
+inventing missing phases. A result containing Address, Top, and Finish is valid partial
+evidence. The UI may render placeholders, but placeholders never become observations.
 
 The current eight-slot storyboard remains a separate presentation model. During migration,
 an explicit adapter may map available canonical phases to storyboard slots. It must preserve
@@ -374,45 +384,53 @@ the original phase and provenance; for example, `P3` must not silently become a 
 
 ## 8. Motion metric interface
 
-Each calculator is a pure module:
+The implemented calculator boundary is:
 
 ```swift
 protocol MotionMetricCalculating: Sendable {
-  var descriptor: MotionMetricDescriptor { get }
+  var supportedMetricIDs: Set<MotionMetricID> { get }
 
-  func calculate(
-    from input: MotionMetricInput
-  ) -> MotionMetricResult
-}
-
-struct MotionMetricInput: Sendable {
-  let skeletonSequences: [MotionCameraSourceID: MotionSkeletonSequence]
-  let phases: SwingPhaseDetectionResult
-  let synchronization: MotionSynchronization?
-  let playerProfile: MotionPlayerProfile?
+  func calculateMetrics(
+    in input: MotionAnalysisInput,
+    phases: [SwingPhaseObservation]
+  ) throws -> [MotionMetricReading]
 }
 ```
 
-The result is evidence-bearing and phase-addressable:
+The implemented compact result is evidence-bearing and phase-addressable:
 
 ```swift
-struct MotionMetricReading: Codable, Equatable, Sendable {
+struct MotionMetricReading: Codable, Equatable, Identifiable, Sendable {
+  let id: UUID
   let metricID: MotionMetricID
   let value: Double?
-  let unit: MotionMetricUnit
+  let unit: MotionMetricUnitID
   let phase: GolfSwingPhase?
-  let interval: GolfSwingPhaseInterval?
-  let dimensionality: MotionDimensionality
-  let availability: MotionAvailability
+  let sourceID: MotionCameraSourceID
+  let viewpoint: MotionCameraViewpoint
+  let timeRange: MotionTimeRange
+  let provenance: MotionValueProvenance
+  let comparisonScope: MotionMetricComparisonScope
+  let availability: MotionMetricAvailability
   let confidence: Double
-  let sourceIDs: [MotionCameraSourceID]
-  let provenance: MotionAlgorithmProvenance
-  let limitations: [MotionLimitation]
+  let unavailableReason: String?
+  let limitations: [String]
 }
 ```
 
-`value == nil` is the correct result when prerequisites are missing. Thresholds used for
-coaching or comparison belong to a versioned coaching/profile layer, not the calculator.
+The compact Milestone 1 `MotionMetricReading` rejects incoherent states both in its throwing
+initializer and custom `Decodable` path:
+
+- any present value, both time-range endpoints, and confidence must be finite;
+- confidence must be in `0...1`;
+- the time range must be nonnegative and ordered from start to end;
+- `.available` and `.limited` require a value and forbid `unavailableReason`;
+- `.unavailable` requires a `nil` value and a nonempty reason bounded to 512 UTF-8 bytes.
+
+There is no crash-path coercion or silent clamping. Structurally decodable persisted inputs
+that violate these invariants fail with `DecodingError.dataCorrupted`; missing fields and
+type mismatches retain their native decoding errors. Thresholds used for coaching or
+comparison belong to a versioned coaching/profile layer, not the calculator.
 
 ### 8.1 Planned metrics and evidence requirements
 
@@ -437,12 +455,19 @@ must describe what was observed rather than claim an unmeasured anatomical angle
 The aggregate analysis result exposes both query styles:
 
 ```swift
-result.metric(.pelvisTurn, at: .impact)
-result.metrics(at: .p6)
-result.metric(.headMovement, from: .address, to: .impact)
+result.metrics(matching: .pelvisTurn, at: .impact)
+result.metric(
+  .pelvisTurn,
+  at: .impact,
+  from: faceOnSourceID,
+  viewpoint: .faceOn
+)
+result.metrics(for: .p6)
 ```
 
-These are read-only domain queries. They do not calculate on demand in a SwiftUI view.
+The all-match query returns every matching reading across sources. Singular lookup requires
+an explicit source and viewpoint and therefore never silently selects the first camera.
+These are read-only domain queries; they do not calculate on demand in a SwiftUI view.
 
 ## 9. Multi-camera pipeline
 
@@ -588,30 +613,36 @@ Included:
 - adapters that translate current types without changing the current live path;
 - focused unit tests in
   `apps/GolfTrace/Tests/MotionAnalysisContractsTests.swift` for ordering, Codable round
-  trips, multiple source identity, phase-indexed metrics, and explicit unavailable results.
+  trips, no fabricated phase observations, multiple source identity, coherent metric
+  construction and decode rejection, finite boundary states, invalid pose time, versioned
+  joint mapping and unknown omission, source-aware metric queries, and explicit unavailable
+  results.
 
 The implemented Milestone 1 vocabulary is:
 
 | Concern | Contract |
 |---|---|
 | camera identity and placement | `MotionCameraSourceID`, `MotionCameraViewpoint` |
-| per-frame source provenance | `MotionFrameContext` with source, stream session, viewpoint, source-local time, coordinate space, rotation, and mirroring |
-| neutral pose | `MotionJointID`, `MotionPoint`, `MotionJointSample`, `MotionSkeletonFrame` |
+| per-frame source provenance | `MotionFrameSourceContext` for caller-supplied identity, viewpoint, and mirroring; `MotionFrameContext` combines those with frame-derived source-local time, coordinate space, and rotation |
+| neutral pose | stable `MotionJointID` constants, `MotionPoint`, `MotionJointSample`, `MotionSkeletonFrame` |
 | canonical phases | `GolfSwingPhase`, `SwingPhaseObservation`, `SwingPhaseDetecting` |
 | metric catalog and results | `MotionMetricID`, `MotionMetricUnitID`, `MotionMetricReading`, `MotionMetricCalculating` |
-| truth and comparison boundary | `MotionValueProvenance`, `MotionMetricAvailability`, `MotionMetricComparisonScope`, `unavailableReason`, and limitations |
+| truth and comparison boundary | `MotionValueProvenance`, `MotionMetricAvailability`, `MotionMetricComparisonScope`, `MotionMetricReadingValidationError`, bounded `unavailableReason`, and limitations |
 | pose boundary | `PoseDetecting` with an associated platform frame input, plus `AppleVisionMotionSkeletonAdapter` as the current translation seam |
-| aggregate | `MotionAnalysisInput`, `MotionAnalysisResult` and phase-indexed metric queries |
+| Apple Vision adaptation | `AppleVisionMotionJointMappingVersion`, `AppleVisionMotionSkeletonAdapter`, and invalid-time rejection |
+| aggregate | `MotionAnalysisInput`, `MotionAnalysisResult`, all-match queries, and source-plus-viewpoint-qualified singular metric lookup |
 | coaching boundary | `MotionCoachEvidence`, `MotionCoachRequest`, `MotionCoachFeedback`, `MotionCoachServing` |
 
-`AppleVisionMotionSkeletonAdapter` translates the existing `PoseFrame` joint vocabulary into
-the neutral skeleton contract. M1 intentionally does not route `LiveSwingPipeline` through
-that adapter yet; runtime migration remains a later step, which is how M1 avoids changing
-capture or analysis behavior.
+`AppleVisionMotionSkeletonAdapter` derives timestamp and orientation from the existing
+`PoseFrame`, declares its Vision coordinates as normalized image-space 2D, and translates
+only joints present in its explicit versioned map. M1 intentionally does not route
+`LiveSwingPipeline` through that adapter yet; runtime migration remains a later step, which
+is how M1 avoids changing capture or analysis behavior.
 
 Excluded:
 
 - replacing Apple Vision or `LiveSwingPipeline`;
+- implementing or integrating full live ten-phase detection;
 - implementing all nine requested motion metrics;
 - claiming 3D motion from a single camera;
 - adding a second wire stream or changing `GolfTraceWireProtocol`;
@@ -624,11 +655,18 @@ Definition of Done:
 1. Existing Mac and iPhone behavior is unchanged.
 2. Domain contracts compile without SwiftUI/AppKit/Vision dependencies.
 3. The canonical phase order is tested exactly as Address, Takeaway, P2, P3, Top,
-   Transition, P6, Impact, Release, Finish.
-4. Two camera sources with the same viewpoint remain distinguishable.
-5. A metric can be queried by phase and can explicitly be unavailable.
-6. Current Vision and metric models can be adapted incrementally.
-7. Existing tests still pass, and the new contracts have focused tests.
+   Transition, P6, Impact, Release, Finish without fabricating observations.
+4. Camera source identity and viewpoint are independent fields; the current focused fixtures
+   distinguish two source identities across different viewpoints.
+5. Metrics support all-match lookup and source-plus-viewpoint-qualified singular lookup, so
+   singular access cannot silently select the first source.
+6. `MotionMetricReading` construction and decoding reject non-finite, out-of-range,
+   contradictory, or overlong unavailable-reason states while retaining valid boundary
+   values.
+7. Current `PoseFrame` output converts deterministically through the versioned Apple Vision
+   joint map, with invalid timestamps rejected.
+8. The focused contract tests pass; real-device and full phase/metric validation remain
+   separate acceptance work.
 
 ## 14. Validation strategy after Milestone 1
 

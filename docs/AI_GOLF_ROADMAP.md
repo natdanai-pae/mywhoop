@@ -54,7 +54,9 @@ Important current limits:
 - the Mac app and iPhone camera are two cooperating executables and there is no login;
 - only one primary high-speed camera stream is active;
 - motion output is uncalibrated 2D, not a full 3D biomechanics engine;
-- the canonical ten-phase model does not yet exist;
+- the canonical ten-phase vocabulary now exists in additive domain contracts, but the live
+  pipeline still emits only partial legacy phase evidence and full validated ten-phase
+  detection is not implemented;
 - launch-monitor UI/state is tied to MLM2PRO;
 - Rapsodo Mirroring is pixels for visual review, not structured metric extraction;
 - history is local package storage, not cross-device practice management;
@@ -256,18 +258,38 @@ available.
 
 Purpose: create stable extension points without changing application behavior.
 
+Status: the additive contract, compatibility-adapter, and focused-test slice below is
+implemented. This does not mark live ten-phase detection or provider-neutral UI/runtime
+migration complete.
+
 Deliverables:
 
 - additive, framework-neutral motion contracts for camera sources/viewpoints, skeleton frames,
   joint identities, phase events, and metric readings;
 - the ten ordered canonical swing phases;
 - reusable pose-detection, phase-detection, and metric-calculation interfaces;
-- provider-neutral launch-monitor ID, descriptor, capability, status, measurement, event, and
-  provider interface;
+- a deterministic Apple Vision compatibility adapter that accepts `PoseFrame` plus
+  source-only context, derives timestamp and orientation from the frame, declares normalized
+  2D coordinates, rejects invalid media time, and uses an explicit versioned map to stable
+  neutral joint IDs while omitting unknown joints;
+- source-plus-viewpoint-qualified singular metric lookup and all-match metric lookup;
+- coherent `MotionMetricReading` construction and decoding: finite values/times/confidence,
+  confidence in `0...1`, finite ordered nonnegative time ranges, and availability/value/reason
+  combinations that reject contradictions; unavailable reasons are nonempty and bounded;
+- provider-neutral launch-monitor ID, descriptor, typed metric-unavailability reason,
+  typed status detail/recovery, typed failure, associated-value trust action, measurement,
+  event, and provider interface;
+- process-local provider event-stream identity, monotonically increasing envelope sequence,
+  and a consumer cursor that rejects zero-sequence, wrong-stream, duplicate, and out-of-order
+  envelopes;
+- structured launch-measurement deduplication keys whose field boundaries participate in
+  equality and hashing;
 - compatibility mapping/adapters for current Apple Vision and MLM2PRO models where required to
   prove the boundary;
-- tests for phase ordering/serialization, multi-camera identity, phase-indexed metric access,
-  custom provider identity, and current MLM2PRO mapping.
+- tests for phase ordering/serialization without fabricated observations, multi-camera
+  identity, metric invariant and decode rejection, invalid pose time, joint-map stability and
+  omission, source-aware metric access, custom provider identity, typed/redacted MLM2PRO
+  mapping, event sequencing/stale rejection, and deduplication field-boundary collisions.
 
 Non-goals:
 
@@ -281,8 +303,9 @@ Non-goals:
 
 ### Milestone 2 — Runtime adapters and session orchestration
 
-- route current Vision output through the neutral skeleton adapter;
-- expose MLM2PRO through the provider façade while preserving behavior;
+- route current Vision output through the already-tested neutral skeleton adapter;
+- adopt the already-tested MLM2PRO provider adapter at the composition root while preserving
+  behavior;
 - introduce a practice-session coordinator and typed domain events;
 - replace provider-specific UI observation with provider-neutral view state;
 - add GolfTrace macOS/iOS build and test lanes to CI.

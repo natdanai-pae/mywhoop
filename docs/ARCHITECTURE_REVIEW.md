@@ -386,9 +386,13 @@ introduced only when login/sync requires one.
 - The UI observes the concrete MLM2PRO `LaunchMonitorController`.
 - Launch connection state, events, AI evidence, and persisted shots contain provider-specific
   names or assumptions.
-- Pose and metric code depends directly on Vision joint identifiers and Apple media time.
-- Phase identifiers are split between string-based evidence and an eight-slot storyboard UI;
-  there is no canonical ten-phase domain vocabulary.
+- The live pose and metric path still depends directly on Vision joint identifiers and Apple
+  media time. The additive adapter now derives exact frame context, rejects invalid media
+  time, and emits only explicitly mapped stable neutral joints, but the live path is not yet
+  routed through it.
+- The additive domain contracts define the canonical ten-phase vocabulary, but the live path
+  still emits partial string-based phase evidence and the eight-slot storyboard remains a
+  presentation model. Full live ten-phase detection is neither integrated nor validated.
 - Only one primary high-speed camera stream is modeled.
 - GolfTrace macOS/iOS builds and tests are not part of the root `.github/workflows/ci.yml`.
 
@@ -414,11 +418,11 @@ introduced only when login/sync requires one.
 
 ## Suggested architecture improvements
 
-1. **Add canonical domain contracts first.** Define swing phases, camera sources/viewpoints,
-   skeletons, motion readings, provider identity, provider capability, connection status, and
-   launch measurements without importing SwiftUI, Vision, CoreBluetooth, or a vendor SDK.
-2. **Adapt current implementations.** Keep Apple Vision, the current live pipeline, and MLM2PRO
-   behavior; map their outputs into the new contracts at boundaries.
+1. **Adopt the canonical contracts added in Milestone 1.** Keep their framework-neutral
+   identity guarantees as runtime paths migrate.
+2. **Route current implementations through the tested adapters.** Preserve Apple Vision, the
+   current live pipeline, and MLM2PRO behavior while moving composition to the new
+   boundaries.
 3. **Move orchestration out of views.** Introduce a practice-session coordinator and narrow
    feature view models without a broad UI rewrite.
 4. **Version the swing aggregate.** Add explicit analysis, launch, coaching, practice,
@@ -449,7 +453,7 @@ introduced only when login/sync requires one.
 
 ## Milestone 1 boundary
 
-Milestone 1 is deliberately additive:
+The implemented Milestone 1 contract slice is deliberately additive:
 
 - introduce canonical, framework-neutral motion domain contracts;
 - define the ten ordered swing phases: Address, Takeaway, P2, P3, Top, Transition, P6,
@@ -458,11 +462,31 @@ Milestone 1 is deliberately additive:
   not collide and future cameras remain representable;
 - define reusable skeleton, metric, phase-detector, pose-detector, and metric-calculator
   contracts;
-- introduce provider-neutral launch-monitor identity, capabilities, status, measurements, and
-  provider interface;
+- derive neutral Apple Vision frame time, orientation, and normalized coordinate context from
+  each `PoseFrame`, reject invalid media time, and map only explicitly supported joints
+  through a versioned table of stable neutral constants;
+- expose all-match metric queries plus source-plus-viewpoint-qualified singular lookup so a
+  multi-camera result never silently chooses its first matching source;
+- reject incoherent `MotionMetricReading` construction and decoding, including non-finite
+  values/time/confidence, invalid confidence or time ranges, and contradictory
+  availability/value/reason combinations; bound required unavailable reasons;
+- introduce provider-neutral launch-monitor identity, typed capability-unavailability reason,
+  status detail/recovery, failure, associated-value trust action, measurements, and provider
+  interface;
+- envelope provider events with a process-local `eventStreamID` and monotonically increasing
+  sequence, plus a cursor that rejects zero-sequence, wrong-stream, duplicate, and
+  out-of-order envelopes;
+- represent durable launch-measurement deduplication identity as a structured value rather
+  than delimiter-concatenated text;
 - add compatibility adapters or mappings for the current Apple Vision/MLM2PRO types;
-- test ordering, serialization, source separation, metric lookup, and provider mapping.
+- test ordering without fabricated observations, serialization, source separation, metric
+  invariant/decode rejection, invalid pose time, versioned joint mapping/omission,
+  source-aware metric lookup, typed/redacted provider mapping, event sequencing/stale
+  rejection, and deduplication field-boundary collisions.
 
-Milestone 1 does **not** switch the UI to the new façade, change the stored `SwingRecord` schema,
-change the camera wire protocol, move files in bulk, add another provider, add login/cloud
-services, or alter capture/replay behavior. Those are later, separately reviewable milestones.
+Milestone 1 does **not** switch the UI or composition root to the new provider façade:
+`GolfTraceApp`, dashboard, and settings still use the concrete `LaunchMonitorController`.
+It also does not implement the full live ten-phase detector, change the stored `SwingRecord`
+schema, change the camera wire protocol, move files in bulk, add another provider, add
+login/cloud services, or alter capture/replay behavior. Those are later, separately
+reviewable milestones.
