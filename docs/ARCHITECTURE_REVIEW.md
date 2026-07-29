@@ -394,7 +394,9 @@ introduced only when login/sync requires one.
   still emits partial string-based phase evidence and the eight-slot storyboard remains a
   presentation model. Full live ten-phase detection is neither integrated nor validated.
 - Only one primary high-speed camera stream is modeled.
-- GolfTrace macOS/iOS builds and tests are not part of the root `.github/workflows/ci.yml`.
+- GolfTrace macOS tests and GolfTraceCamera iOS build/tests now run in the dedicated
+  `.github/workflows/golftrace-ci.yml`; physical iPhone, camera, Bluetooth, and MLM2PRO UAT
+  remain outside CI.
 
 ### Medium priority
 
