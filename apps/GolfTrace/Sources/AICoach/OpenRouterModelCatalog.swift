@@ -104,4 +104,16 @@ enum OpenRouterGolfModelCatalog {
     expiresAt: ISO8601DateFormatter().date(from: "2026-07-21T00:00:00Z"),
     note: "text-only และ OpenRouter ประกาศยุติ 21 กรกฎาคม 2026"
   )
+
+  static let all: [OpenRouterGolfModelProfile] = [
+    primaryCoach,
+    paidCritic,
+    paidVisionAudit,
+    freeVisionShadow,
+    temporaryHy3Free,
+  ]
+
+  static func profile(id: String) -> OpenRouterGolfModelProfile? {
+    all.first { $0.id == id }
+  }
 }

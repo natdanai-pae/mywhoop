@@ -107,6 +107,7 @@ xcodebuild \
 - endpoint ของ YouTube MCP, GX10 Whisper และ GX10 VLM ตั้งในหน้า AI Golf Pro; อย่าใส่ secret ลง source, shell history, log หรือ `.env`
 - `GOLFTRACE_LIVE_MCP_URL` เป็นตัวเลือกสำหรับเปิด live MCP test
 - `GOLFTRACE_VALIDATION_VIDEO_DIR` เป็นตัวเลือกสำหรับ external-video canary tests; directory นี้อาจมีภาพบุคคลและต้องอยู่นอก Git
+- `GOLFTRACE_OPENROUTER_EVALUATION_SUITE_ID` เป็น gate สำหรับ validation canary ของ coach model เท่านั้น ต้องตรงกับ suite ID ที่ระบุในโค้ดหลังมีหลักฐาน regression จึงจะส่ง packet ผู้เล่นออกไป; ค่าเริ่มต้นคือปิดและห้ามเก็บ API key ในตัวแปรนี้
 - `DEVELOPMENT_TEAM` เป็น Xcode build setting สำหรับ signing ในเครื่อง ไม่ใช่ runtime secret และไม่ควร commit ค่า
 
 ไม่มี frontend web หรือ backend service ใน repository ที่ต้องเปิดเพื่อใช้กล้อง การวิเคราะห์ในเครื่อง ประวัติ และ replay บริการ AI/อุปกรณ์ต่อไปนี้เป็น optional:

@@ -43,7 +43,7 @@ enum GX10VLMError: LocalizedError, Equatable {
   case invalidResponse
   case responseTooLarge
   case untrustedResponse
-  case server(status: Int, message: String)
+  case server(status: Int)
   case groundingInvalid
 
   var errorDescription: String? {
@@ -66,8 +66,8 @@ enum GX10VLMError: LocalizedError, Equatable {
       return "VLM ส่งข้อมูลกลับมาใหญ่เกิน 512 KiB"
     case .untrustedResponse:
       return "VLM ตอบกลับมาจากที่อยู่อื่น จึงหยุดเพื่อป้องกันข้อมูลรั่วไหล"
-    case .server(let status, let message):
-      return "VLM ตอบรหัส \(status): \(message)"
+    case .server(let status):
+      return "VLM ตอบรหัส \(status): ตรวจ endpoint, model และสถานะ VLM บน GX10"
     case .groundingInvalid:
       return "ผลวิเคราะห์ภาพของ VLM ไม่ผ่าน schema หรืออ้าง claim ที่ไม่ได้ส่งไป"
     }
@@ -209,10 +209,7 @@ actor GX10VLMClient: VisualClaimAnalyzing {
       throw GX10VLMError.untrustedResponse
     }
     guard (200..<300).contains(http.statusCode) else {
-      throw GX10VLMError.server(
-        status: http.statusCode,
-        message: Self.safeServerMessage(data)
-      )
+      throw GX10VLMError.server(status: http.statusCode)
     }
     guard Self.isJSONResponse(http) else {
       throw GX10VLMError.invalidResponse
@@ -421,12 +418,6 @@ actor GX10VLMClient: VisualClaimAnalyzing {
     return mimeType == "application/json" || mimeType.hasSuffix("+json")
   }
 
-  private static func safeServerMessage(_ data: Data) -> String {
-    if let envelope = try? JSONDecoder().decode(VLMAPIErrorEnvelope.self, from: data) {
-      return String(envelope.error.message.prefix(240))
-    }
-    return "ตรวจ endpoint, model และสถานะ VLM บน GX10"
-  }
 }
 
 private final class VLMRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
@@ -541,12 +532,4 @@ private struct VLMGroundingDraft: Decodable {
     case confidence
     case limitations
   }
-}
-
-private struct VLMAPIErrorEnvelope: Decodable {
-  struct APIError: Decodable {
-    let message: String
-  }
-
-  let error: APIError
 }
