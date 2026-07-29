@@ -233,6 +233,34 @@ final class GX10VLMClientTests: XCTestCase {
     }
   }
 
+  func testServerErrorNeverReflectsUpstreamTranscriptOrPrompt() async {
+    let endpoint = URL(string: "http://127.0.0.1:8000/v1/chat/completions")!
+    MockVLMURLProtocol.handler = { request in
+      (
+        try Self.response(
+          url: request.url!,
+          statusCode: 500,
+          headers: ["Content-Type": "application/json"]
+        ),
+        Data(#"{"error":{"message":"sensitive transcript and player prompt"}}"#.utf8)
+      )
+    }
+    let client = GX10VLMClient(session: Self.mockSession())
+
+    await assertThrowsVLMError(.server(status: 500)) {
+      try await client.analyze(
+        frames: [Self.frame()],
+        transcript: "transcript",
+        claims: [Self.claim()],
+        endpoint: endpoint,
+        model: "qwen-vl"
+      )
+    }
+    let message = GX10VLMError.server(status: 500).localizedDescription.lowercased()
+    XCTAssertFalse(message.contains("sensitive transcript"))
+    XCTAssertFalse(message.contains("player prompt"))
+  }
+
   func testRejectsNonJSONMalformedAndUngroundedClaims() async {
     let endpoint = URL(string: "http://127.0.0.1:8000/v1/chat/completions")!
     let client = GX10VLMClient(session: Self.mockSession())

@@ -63,8 +63,8 @@ final class AIGolfProController: NSObject, ObservableObject {
 
   let settings: GolfAISettings
 
-  private let whisperClient: GX10WhisperClient
-  private let coachClient: DSV4GolfCoachClient
+  private let whisperClient: any SpeechTranscribing
+  private let coachClient: any GolfCoachRequesting
   private let speechSynthesizer = AVSpeechSynthesizer()
   private var audioRecorder: AVAudioRecorder?
   private var recordingURL: URL?
@@ -77,8 +77,8 @@ final class AIGolfProController: NSObject, ObservableObject {
 
   init(
     settings: GolfAISettings,
-    whisperClient: GX10WhisperClient = GX10WhisperClient(),
-    coachClient: DSV4GolfCoachClient = DSV4GolfCoachClient()
+    whisperClient: any SpeechTranscribing = GX10WhisperClient(),
+    coachClient: any GolfCoachRequesting = DSV4GolfCoachClient()
   ) {
     self.settings = settings
     self.whisperClient = whisperClient

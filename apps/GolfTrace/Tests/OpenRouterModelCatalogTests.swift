@@ -81,4 +81,58 @@ final class OpenRouterModelCatalogTests: XCTestCase {
         now: after
       ))
   }
+
+  func testStructuredCoachEvaluationDefaultsToDenyAndRequiresExactCanary() {
+    let model = OpenRouterGolfModelCatalog.primaryCoach
+    let defaultRegistry = BundledGolfAIModelEvaluationRegistry()
+    XCTAssertFalse(
+      defaultRegistry.hasPassed(
+        modelID: model.id,
+        role: model.role,
+        input: .structuredSwingPacket
+      )
+    )
+
+    let wrongCanary = BundledGolfAIModelEvaluationRegistry.validationCanary(
+      environment: [
+        BundledGolfAIModelEvaluationRegistry.structuredCoachCanaryEnvironmentKey:
+          "wrong-suite"
+      ]
+    )
+    XCTAssertFalse(
+      wrongCanary.hasPassed(
+        modelID: model.id,
+        role: model.role,
+        input: .structuredSwingPacket
+      )
+    )
+
+    let exactCanary = BundledGolfAIModelEvaluationRegistry.validationCanary(
+      environment: [
+        BundledGolfAIModelEvaluationRegistry.structuredCoachCanaryEnvironmentKey:
+          BundledGolfAIModelEvaluationRegistry.structuredCoachSuiteID
+      ]
+    )
+    XCTAssertTrue(
+      exactCanary.hasPassed(
+        modelID: model.id,
+        role: model.role,
+        input: .structuredSwingPacket
+      )
+    )
+    XCTAssertFalse(
+      exactCanary.hasPassed(
+        modelID: model.id,
+        role: .critic,
+        input: .structuredSwingPacket
+      )
+    )
+    XCTAssertFalse(
+      exactCanary.hasPassed(
+        modelID: model.id,
+        role: model.role,
+        input: .playerAuditFrame
+      )
+    )
+  }
 }

@@ -28,14 +28,17 @@ struct GX10WhisperTranscript: Equatable, Sendable {
   let durationSeconds: Double?
 }
 
-enum GX10WhisperError: LocalizedError {
+enum GX10WhisperError: LocalizedError, Equatable {
   case invalidConfiguration
   case audioFileMissing
   case audioFileTooLarge
   case insecureAPIKeyTransport
   case invalidResponse
+  case responseTooLarge
+  case transcriptTooLarge
+  case unsupportedResponseType
   case untrustedResponse
-  case server(status: Int, message: String)
+  case server(status: Int)
   case emptyTranscript
 
   var errorDescription: String? {
@@ -50,17 +53,33 @@ enum GX10WhisperError: LocalizedError {
       return "ไม่ส่ง API key ผ่าน Whisper แบบ HTTP กรุณาใช้ HTTPS หรือปล่อยช่อง key ว่าง"
     case .invalidResponse:
       return "Whisper บน GX10 ตอบกลับมาในรูปแบบที่อ่านไม่ได้"
+    case .responseTooLarge:
+      return "Whisper บน GX10 ส่งข้อมูลกลับมาใหญ่เกินขอบเขตที่แอปรับได้"
+    case .transcriptTooLarge:
+      return "Whisper บน GX10 ส่งข้อความยาวเกินขอบเขตที่แอปรับได้"
+    case .unsupportedResponseType:
+      return "Whisper บน GX10 ไม่ได้ส่งข้อมูลกลับมาเป็น JSON หรือข้อความ"
     case .untrustedResponse:
       return "Whisper ตอบกลับมาจากที่อยู่อื่น จึงหยุดเพื่อป้องกันข้อมูลรั่วไหล"
-    case .server(let status, let message):
-      return "Whisper ตอบรหัส \(status): \(message)"
+    case .server(let status):
+      return "Whisper ตอบรหัส \(status): ตรวจสอบ endpoint, API key และสถานะบริการบน GX10"
     case .emptyTranscript:
       return "Whisper ยังไม่ได้ยินคำพูดที่ชัดเจน กรุณาลองอีกครั้ง"
     }
   }
 }
 
-actor GX10WhisperClient {
+protocol SpeechTranscribing: Sendable {
+  func transcribe(
+    audioURL: URL,
+    configuration: GX10WhisperConfiguration
+  ) async throws -> GX10WhisperTranscript
+}
+
+actor GX10WhisperClient: SpeechTranscribing {
+  static let maximumResponseBytes = 256 * 1_024
+  static let maximumTranscriptBytes = 16 * 1_024
+
   private let transport: any AICoachHTTPTransporting
   private let maximumAudioBytes = 25 * 1_024 * 1_024
 
@@ -128,34 +147,56 @@ actor GX10WhisperClient {
       "multipart/form-data; boundary=\(boundary)",
       forHTTPHeaderField: "Content-Type"
     )
+    request.setValue(
+      "application/json, text/plain",
+      forHTTPHeaderField: "Accept"
+    )
     request.setValue("GolfTrace/1.0", forHTTPHeaderField: "User-Agent")
     if let apiKey = normalizedAPIKey, !apiKey.isEmpty {
       request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
     }
     request.httpBody = body
 
-    let (data, response) = try await transport.data(for: request)
+    let data: Data
+    let response: URLResponse
+    do {
+      (data, response) = try await transport.data(
+        for: request,
+        maximumResponseBytes: Self.maximumResponseBytes
+      )
+    } catch AICoachHTTPTransportError.responseTooLarge {
+      throw GX10WhisperError.responseTooLarge
+    }
     guard let http = response as? HTTPURLResponse else {
       throw GX10WhisperError.invalidResponse
     }
     guard AICoachEndpointPolicy.isSameOrigin(configuration.endpoint, http.url) else {
       throw GX10WhisperError.untrustedResponse
     }
+    guard http.expectedContentLength <= Self.maximumResponseBytes,
+      data.count <= Self.maximumResponseBytes
+    else {
+      throw GX10WhisperError.responseTooLarge
+    }
     guard (200..<300).contains(http.statusCode) else {
-      throw GX10WhisperError.server(
-        status: http.statusCode,
-        message: Self.safeServerMessage(data)
-      )
+      throw GX10WhisperError.server(status: http.statusCode)
     }
 
-    if let result = try? JSONDecoder().decode(WhisperResponse.self, from: data) {
+    guard let responseType = Self.responseType(http) else {
+      throw GX10WhisperError.unsupportedResponseType
+    }
+    if responseType == .json,
+      let result = try? JSONDecoder().decode(WhisperResponse.self, from: data)
+    {
       return try Self.validated(
         text: result.text,
         language: result.language,
         duration: result.duration
       )
     }
-    if let rawText = String(data: data, encoding: .utf8) {
+    if responseType == .plainText,
+      let rawText = String(data: data, encoding: .utf8)
+    {
       return try Self.validated(text: rawText, language: nil, duration: nil)
     }
     throw GX10WhisperError.invalidResponse
@@ -168,6 +209,14 @@ actor GX10WhisperClient {
   ) throws -> GX10WhisperTranscript {
     let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalized.isEmpty else { throw GX10WhisperError.emptyTranscript }
+    guard normalized.utf8.count <= maximumTranscriptBytes else {
+      throw GX10WhisperError.transcriptTooLarge
+    }
+    guard language?.utf8.count ?? 0 <= 32,
+      duration.map({ $0.isFinite && $0 >= 0 }) ?? true
+    else {
+      throw GX10WhisperError.invalidResponse
+    }
     return GX10WhisperTranscript(
       text: normalized,
       language: language,
@@ -184,11 +233,20 @@ actor GX10WhisperClient {
     }
   }
 
-  private static func safeServerMessage(_ data: Data) -> String {
-    if let error = try? JSONDecoder().decode(WhisperErrorEnvelope.self, from: data) {
-      return String(error.error.message.prefix(240))
+  private enum ResponseType: Equatable {
+    case json
+    case plainText
+  }
+
+  private static func responseType(_ response: HTTPURLResponse) -> ResponseType? {
+    guard let mimeType = response.mimeType?.lowercased() else { return nil }
+    if mimeType == "application/json" || mimeType.hasSuffix("+json") {
+      return .json
     }
-    return "ตรวจสอบ endpoint, API key และสถานะ Whisper บน GX10"
+    if mimeType == "text/plain" {
+      return .plainText
+    }
+    return nil
   }
 }
 
@@ -196,14 +254,6 @@ private struct WhisperResponse: Decodable {
   let text: String
   let language: String?
   let duration: Double?
-}
-
-private struct WhisperErrorEnvelope: Decodable {
-  struct ErrorBody: Decodable {
-    let message: String
-  }
-
-  let error: ErrorBody
 }
 
 extension Data {

@@ -65,8 +65,36 @@ struct DSV4GolfCoachResult: Equatable, Sendable {
   let usage: OpenRouterGenerationUsage
 }
 
+protocol GolfCoachRequesting: Sendable {
+  func requestAdvice(
+    context: GolfCoachRequestContext,
+    configuration: DSV4GolfCoachConfiguration
+  ) async throws -> DSV4GolfCoachResult
+}
+
 protocol AICoachHTTPTransporting: Sendable {
   func data(for request: URLRequest) async throws -> (Data, URLResponse)
+  func data(
+    for request: URLRequest,
+    maximumResponseBytes: Int
+  ) async throws -> (Data, URLResponse)
+}
+
+enum AICoachHTTPTransportError: Error, Equatable {
+  case responseTooLarge
+}
+
+extension AICoachHTTPTransporting {
+  func data(
+    for request: URLRequest,
+    maximumResponseBytes: Int
+  ) async throws -> (Data, URLResponse) {
+    let result = try await data(for: request)
+    guard result.0.count <= maximumResponseBytes else {
+      throw AICoachHTTPTransportError.responseTooLarge
+    }
+    return result
+  }
 }
 
 final class AICoachRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
@@ -103,21 +131,62 @@ struct AICoachURLSessionTransport: AICoachHTTPTransporting {
   func data(for request: URLRequest) async throws -> (Data, URLResponse) {
     try await session.data(for: request)
   }
+
+  func data(
+    for request: URLRequest,
+    maximumResponseBytes: Int
+  ) async throws -> (Data, URLResponse) {
+    let (bytes, response) = try await session.bytes(for: request)
+    guard response.expectedContentLength <= maximumResponseBytes else {
+      throw AICoachHTTPTransportError.responseTooLarge
+    }
+
+    var data = Data()
+    if response.expectedContentLength > 0 {
+      data.reserveCapacity(Int(response.expectedContentLength))
+    }
+    for try await byte in bytes {
+      guard data.count < maximumResponseBytes else {
+        throw AICoachHTTPTransportError.responseTooLarge
+      }
+      data.append(byte)
+    }
+    return (data, response)
+  }
 }
 
-actor DSV4GolfCoachClient {
+actor DSV4GolfCoachClient: GolfCoachRequesting {
   private static let maximumResponseBytes = 512 * 1_024
   private static let maximumAssistantContentBytes = 128 * 1_024
+  private static let maximumSpeechBytes = 1_000
+  private static let maximumFocusTitleBytes = 240
+  private static let maximumEvidenceSummaryBytes = 4_000
+  private static let maximumDrillBytes = 2_000
+  private static let maximumLimitationCount = 16
+  private static let maximumLimitationBytes = 1_000
+  private static let maximumCitationCount = 64
+  private static let maximumCitationIDBytes = 200
   private let transport: any AICoachHTTPTransporting
+  private let evaluationRegistry: any GolfAIModelEvaluationChecking
 
-  init(session: URLSession? = nil) {
+  init(
+    session: URLSession? = nil,
+    evaluationRegistry: any GolfAIModelEvaluationChecking =
+      BundledGolfAIModelEvaluationRegistry.validationCanary()
+  ) {
     transport =
       session.map(AICoachURLSessionTransport.init(session:))
       ?? AICoachURLSessionTransport()
+    self.evaluationRegistry = evaluationRegistry
   }
 
-  init(transport: any AICoachHTTPTransporting) {
+  init(
+    transport: any AICoachHTTPTransporting,
+    evaluationRegistry: any GolfAIModelEvaluationChecking =
+      BundledGolfAIModelEvaluationRegistry.validationCanary()
+  ) {
     self.transport = transport
+    self.evaluationRegistry = evaluationRegistry
   }
 
   func requestAdvice(
@@ -129,9 +198,21 @@ actor DSV4GolfCoachClient {
     else {
       throw DSV4GolfCoachError.invalidConfiguration
     }
-    guard
-      configuration.model.trimmingCharacters(in: .whitespacesAndNewlines)
-        == OpenRouterGolfModelCatalog.primaryCoach.id
+    let normalizedModel = configuration.model.trimmingCharacters(
+      in: .whitespacesAndNewlines
+    )
+    guard let modelProfile = OpenRouterGolfModelCatalog.profile(id: normalizedModel),
+      modelProfile.role == .coach,
+      evaluationRegistry.hasPassed(
+        modelID: normalizedModel,
+        role: modelProfile.role,
+        input: .structuredSwingPacket
+      ),
+      modelProfile.isEligible(
+        for: .structuredSwingPacket,
+        evaluationPassed: true,
+        playerFrameConsent: false
+      )
     else {
       throw DSV4GolfCoachError.unsupportedModel
     }
@@ -190,7 +271,16 @@ actor DSV4GolfCoachClient {
     }
     request.httpBody = try JSONEncoder().encode(payload)
 
-    let (data, response) = try await transport.data(for: request)
+    let data: Data
+    let response: URLResponse
+    do {
+      (data, response) = try await transport.data(
+        for: request,
+        maximumResponseBytes: Self.maximumResponseBytes
+      )
+    } catch AICoachHTTPTransportError.responseTooLarge {
+      throw DSV4GolfCoachError.responseTooLarge
+    }
     guard let http = response as? HTTPURLResponse else {
       throw DSV4GolfCoachError.invalidResponse
     }
@@ -220,11 +310,12 @@ actor DSV4GolfCoachClient {
     }
     guard let json = Self.firstJSONObject(in: content),
       let adviceData = json.data(using: .utf8),
-      let advice = try? JSONDecoder().decode(GolfCoachAdvice.self, from: adviceData),
-      !advice.speech.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-      !advice.focusTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-      (0...1).contains(advice.confidence),
-      Set(advice.citationIDs).isSubset(of: Set(context.citations.map(\.id)))
+      Self.hasExactAdviceKeys(adviceData),
+      let draft = try? JSONDecoder().decode(GolfCoachAdvice.self, from: adviceData),
+      let advice = Self.validatedAdvice(
+        draft,
+        allowedCitationIDs: Set(context.citations.map(\.id))
+      )
     else {
       throw DSV4GolfCoachError.adviceFormatInvalid
     }
@@ -277,6 +368,55 @@ actor DSV4GolfCoachClient {
       return nil
     }
     return String(value[start...end])
+  }
+
+  private static func hasExactAdviceKeys(_ data: Data) -> Bool {
+    guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      return false
+    }
+    return Set(object.keys) == [
+      "speech",
+      "focusTitle",
+      "evidenceSummary",
+      "drill",
+      "confidence",
+      "limitations",
+      "citationIDs",
+    ]
+  }
+
+  private static func validatedAdvice(
+    _ advice: GolfCoachAdvice,
+    allowedCitationIDs: Set<String>
+  ) -> GolfCoachAdvice? {
+    guard isBoundedNonempty(advice.speech, maximumBytes: maximumSpeechBytes),
+      isBoundedNonempty(advice.focusTitle, maximumBytes: maximumFocusTitleBytes),
+      isBoundedNonempty(
+        advice.evidenceSummary,
+        maximumBytes: maximumEvidenceSummaryBytes
+      ),
+      isBoundedNonempty(advice.drill, maximumBytes: maximumDrillBytes),
+      advice.confidence.isFinite,
+      (0...1).contains(advice.confidence),
+      advice.limitations.count <= maximumLimitationCount,
+      advice.limitations.allSatisfy({
+        isBoundedNonempty($0, maximumBytes: maximumLimitationBytes)
+      }),
+      advice.citationIDs.count <= maximumCitationCount,
+      Set(advice.citationIDs).count == advice.citationIDs.count,
+      advice.citationIDs.allSatisfy({
+        isBoundedNonempty($0, maximumBytes: maximumCitationIDBytes)
+      }),
+      Set(advice.citationIDs).isSubset(of: allowedCitationIDs)
+    else {
+      return nil
+    }
+    return advice
+  }
+
+  private static func isBoundedNonempty(_ value: String, maximumBytes: Int) -> Bool {
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return !normalized.isEmpty && value.utf8.count <= maximumBytes
   }
 
   private static func safeServerMessage(_ data: Data) -> String {

@@ -138,7 +138,10 @@ final class AIGolfCoachModelsTests: XCTestCase {
       )!
       return (Self.validAdviceResponse, response)
     }
-    let client = DSV4GolfCoachClient(transport: transport)
+    let client = DSV4GolfCoachClient(
+      transport: transport,
+      evaluationRegistry: Self.evaluatedCoachRegistry
+    )
 
     _ = try await client.requestAdvice(
       context: Self.emptyContext,
@@ -176,7 +179,10 @@ final class AIGolfCoachModelsTests: XCTestCase {
         )!
       )
     }
-    let client = DSV4GolfCoachClient(transport: transport)
+    let client = DSV4GolfCoachClient(
+      transport: transport,
+      evaluationRegistry: Self.evaluatedCoachRegistry
+    )
 
     _ = try await client.requestAdvice(
       context: Self.emptyContext,
@@ -215,7 +221,8 @@ final class AIGolfCoachModelsTests: XCTestCase {
             headerFields: ["Content-Type": "application/json"]
           )!
         )
-      }
+      },
+      evaluationRegistry: Self.evaluatedCoachRegistry
     )
 
     let result = try await client.requestAdvice(
@@ -267,6 +274,85 @@ final class AIGolfCoachModelsTests: XCTestCase {
     XCTAssertEqual(callCount, 0)
   }
 
+  func testCoachModelWithoutExplicitEvaluationCanaryIsRejectedBeforeNetworkCall() async {
+    let counter = AICallCounter()
+    let client = DSV4GolfCoachClient(
+      transport: AIStubTransport { request in
+        await counter.increment()
+        return (
+          Data(),
+          HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+          )!
+        )
+      }
+    )
+
+    do {
+      _ = try await client.requestAdvice(
+        context: Self.emptyContext,
+        configuration: DSV4GolfCoachConfiguration(
+          endpoint: URL(string: GolfAISettings.defaultCoachEndpoint)!,
+          model: OpenRouterGolfModelCatalog.primaryCoach.id,
+          apiKey: "secret",
+          employeeCode: ""
+        )
+      )
+      XCTFail("Expected unsupportedModel")
+    } catch DSV4GolfCoachError.unsupportedModel {
+      // Expected: model selection alone cannot bypass the evaluation registry.
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+    let callCount = await counter.value()
+    XCTAssertEqual(callCount, 0)
+  }
+
+  func testCoachAdviceRejectsExtraKeysAndOversizedSpeech() async throws {
+    for content in [
+      #"{"speech":"สั้น","focusTitle":"จังหวะ","evidenceSummary":"ข้อมูล","drill":"ตีสามลูก","confidence":0.8,"limitations":[],"citationIDs":[],"unexpected":"value"}"#,
+      #"{"speech":"\#(String(repeating: "ก", count: 600))","focusTitle":"จังหวะ","evidenceSummary":"ข้อมูล","drill":"ตีสามลูก","confidence":0.8,"limitations":[],"citationIDs":[]}"#,
+    ] {
+      let response = try JSONSerialization.data(withJSONObject: [
+        "choices": [["message": ["role": "assistant", "content": content]]]
+      ])
+      let client = DSV4GolfCoachClient(
+        transport: AIStubTransport { request in
+          (
+            response,
+            HTTPURLResponse(
+              url: request.url!,
+              statusCode: 200,
+              httpVersion: "HTTP/1.1",
+              headerFields: ["Content-Type": "application/json"]
+            )!
+          )
+        },
+        evaluationRegistry: Self.evaluatedCoachRegistry
+      )
+
+      do {
+        _ = try await client.requestAdvice(
+          context: Self.emptyContext,
+          configuration: DSV4GolfCoachConfiguration(
+            endpoint: URL(string: GolfAISettings.defaultCoachEndpoint)!,
+            model: OpenRouterGolfModelCatalog.primaryCoach.id,
+            apiKey: "secret",
+            employeeCode: ""
+          )
+        )
+        XCTFail("Expected adviceFormatInvalid")
+      } catch DSV4GolfCoachError.adviceFormatInvalid {
+        // Expected.
+      } catch {
+        XCTFail("Unexpected error: \(error)")
+      }
+    }
+  }
+
   func testKnowledgeMappingKeepsOnlyGroundingForItsClaim() throws {
     let matching = Self.makeGrounding(id: "matching", claimID: "claim-1")
     let unrelated = Self.makeGrounding(id: "unrelated", claimID: "claim-2")
@@ -309,7 +395,10 @@ final class AIGolfCoachModelsTests: XCTestCase {
         )!
       )
     }
-    let client = DSV4GolfCoachClient(transport: transport)
+    let client = DSV4GolfCoachClient(
+      transport: transport,
+      evaluationRegistry: Self.evaluatedCoachRegistry
+    )
     let frame = ReferenceFrameObservation(
       id: "frame-secret",
       timestampSeconds: 12.5,
@@ -426,6 +515,230 @@ final class AIGolfCoachModelsTests: XCTestCase {
     XCTAssertEqual(callCount, 0)
   }
 
+  func testWhisperAcceptsBoundedJSONAndAdvertisesSupportedResponseTypes() async throws {
+    let audioURL = try Self.makeTemporaryAudioFile()
+    defer { try? FileManager.default.removeItem(at: audioURL) }
+    let recorder = AIRequestRecorder()
+    let endpoint = URL(string: "https://gx10.example/v1/audio/transcriptions")!
+    let client = GX10WhisperClient(
+      transport: AIStubTransport { request in
+        await recorder.record(request)
+        return (
+          Data(#"{"text":" เริ่มวง ","language":"th","duration":1.25}"#.utf8),
+          HTTPURLResponse(
+            url: endpoint,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json"]
+          )!
+        )
+      }
+    )
+
+    let transcript = try await client.transcribe(
+      audioURL: audioURL,
+      configuration: GX10WhisperConfiguration(
+        endpoint: endpoint,
+        model: "whisper-large-v3",
+        apiKey: "secret"
+      )
+    )
+
+    XCTAssertEqual(transcript.text, "เริ่มวง")
+    XCTAssertEqual(transcript.language, "th")
+    XCTAssertEqual(transcript.durationSeconds, 1.25)
+    let recordedRequest = await recorder.lastRequest()
+    let request = try XCTUnwrap(recordedRequest)
+    XCTAssertEqual(
+      request.value(forHTTPHeaderField: "Accept"),
+      "application/json, text/plain"
+    )
+  }
+
+  func testWhisperCPPInferenceUsesPromptWithoutAuthorizationOrModelField() async throws {
+    let audioURL = try Self.makeTemporaryAudioFile()
+    defer { try? FileManager.default.removeItem(at: audioURL) }
+    let recorder = AIRequestRecorder()
+    let endpoint = URL(string: "http://127.0.0.1:8080/inference")!
+    let client = GX10WhisperClient(
+      transport: AIStubTransport { request in
+        await recorder.record(request)
+        return (
+          Data(#"{"text":"พร้อมตี","language":"th","duration":0.8}"#.utf8),
+          HTTPURLResponse(
+            url: endpoint,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json"]
+          )!
+        )
+      }
+    )
+
+    let transcript = try await client.transcribe(
+      audioURL: audioURL,
+      configuration: GX10WhisperConfiguration(
+        endpoint: endpoint,
+        model: "ignored-for-whisper-cpp",
+        apiKey: nil
+      )
+    )
+
+    XCTAssertEqual(transcript.text, "พร้อมตี")
+    let recordedRequest = await recorder.lastRequest()
+    let request = try XCTUnwrap(recordedRequest)
+    XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+    let body = try XCTUnwrap(request.httpBody)
+    let multipart = try XCTUnwrap(String(data: body, encoding: .utf8))
+    XCTAssertTrue(multipart.contains(#"name="prompt""#))
+    XCTAssertTrue(multipart.contains(#"name="response_format""#))
+    XCTAssertFalse(multipart.contains(#"name="model""#))
+  }
+
+  func testWhisperRejectsOversizedOrUnsupportedResponse() async throws {
+    let audioURL = try Self.makeTemporaryAudioFile()
+    defer { try? FileManager.default.removeItem(at: audioURL) }
+    let endpoint = URL(string: "https://gx10.example/v1/audio/transcriptions")!
+
+    for (data, contentType, expected) in [
+      (
+        Data(repeating: 0x20, count: GX10WhisperClient.maximumResponseBytes + 1),
+        "application/json",
+        GX10WhisperError.responseTooLarge
+      ),
+      (Data("not audio text".utf8), "text/html", .unsupportedResponseType),
+    ] {
+      let client = GX10WhisperClient(
+        transport: AIStubTransport { _ in
+          (
+            data,
+            HTTPURLResponse(
+              url: endpoint,
+              statusCode: 200,
+              httpVersion: "HTTP/1.1",
+              headerFields: ["Content-Type": contentType]
+            )!
+          )
+        }
+      )
+      do {
+        _ = try await client.transcribe(
+          audioURL: audioURL,
+          configuration: GX10WhisperConfiguration(
+            endpoint: endpoint,
+            model: "whisper-large-v3",
+            apiKey: "secret"
+          )
+        )
+        XCTFail("Expected \(expected)")
+      } catch let error as GX10WhisperError {
+        XCTAssertEqual(error, expected)
+      } catch {
+        XCTFail("Unexpected error: \(error)")
+      }
+    }
+  }
+
+  func testWhisperServerErrorNeverReflectsUpstreamBody() async throws {
+    let audioURL = try Self.makeTemporaryAudioFile()
+    defer { try? FileManager.default.removeItem(at: audioURL) }
+    let endpoint = URL(string: "https://gx10.example/v1/audio/transcriptions")!
+    let client = GX10WhisperClient(
+      transport: AIStubTransport { _ in
+        (
+          Data(#"{"error":{"message":"sensitive player transcript"}}"#.utf8),
+          HTTPURLResponse(
+            url: endpoint,
+            statusCode: 500,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json"]
+          )!
+        )
+      }
+    )
+
+    do {
+      _ = try await client.transcribe(
+        audioURL: audioURL,
+        configuration: GX10WhisperConfiguration(
+          endpoint: endpoint,
+          model: "whisper-large-v3",
+          apiKey: "secret"
+        )
+      )
+      XCTFail("Expected server error")
+    } catch let error as GX10WhisperError {
+      XCTAssertEqual(error, .server(status: 500))
+      XCTAssertFalse(error.localizedDescription.contains("sensitive player transcript"))
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  func testWhisperRejectsOversizedTranscriptAndInvalidMetadata() async throws {
+    let audioURL = try Self.makeTemporaryAudioFile()
+    defer { try? FileManager.default.removeItem(at: audioURL) }
+    let endpoint = URL(string: "https://gx10.example/v1/audio/transcriptions")!
+    let responses: [(Data, GX10WhisperError)] = [
+      (
+        try JSONSerialization.data(withJSONObject: [
+          "text": String(
+            repeating: "a",
+            count: GX10WhisperClient.maximumTranscriptBytes + 1
+          )
+        ]),
+        .transcriptTooLarge
+      ),
+      (
+        try JSONSerialization.data(withJSONObject: [
+          "text": "พร้อม",
+          "language": String(repeating: "x", count: 33),
+          "duration": 1,
+        ]),
+        .invalidResponse
+      ),
+      (
+        try JSONSerialization.data(withJSONObject: [
+          "text": "พร้อม",
+          "language": "th",
+          "duration": -1,
+        ]),
+        .invalidResponse
+      ),
+    ]
+
+    for (data, expected) in responses {
+      let client = GX10WhisperClient(
+        transport: AIStubTransport { _ in
+          (
+            data,
+            HTTPURLResponse(
+              url: endpoint,
+              statusCode: 200,
+              httpVersion: "HTTP/1.1",
+              headerFields: ["Content-Type": "application/json"]
+            )!
+          )
+        }
+      )
+      do {
+        _ = try await client.transcribe(
+          audioURL: audioURL,
+          configuration: GX10WhisperConfiguration(
+            endpoint: endpoint,
+            model: "whisper-large-v3",
+            apiKey: "secret"
+          )
+        )
+        XCTFail("Expected \(expected)")
+      } catch let error as GX10WhisperError {
+        XCTAssertEqual(error, expected)
+      } catch {
+        XCTFail("Unexpected error: \(error)")
+      }
+    }
+  }
+
   private static let emptyContext = GolfCoachRequestContext(
     language: "th-TH",
     playerQuestion: "ช่วยดูวงให้หน่อย",
@@ -445,6 +758,21 @@ final class AIGolfCoachModelsTests: XCTestCase {
     #"{"choices":[{"message":{"role":"assistant","content":"{\"speech\":\"ลองรักษาจังหวะเดิมครับ\",\"focusTitle\":\"จังหวะ\",\"evidenceSummary\":\"ข้อมูลทดสอบ\",\"drill\":\"ตีสามลูก\",\"confidence\":0.8,\"limitations\":[],\"citationIDs\":[]}"}}]}"#
       .utf8
   )
+
+  private static let evaluatedCoachRegistry =
+    BundledGolfAIModelEvaluationRegistry(
+      approvedStructuredCoachModelIDs: [
+        OpenRouterGolfModelCatalog.primaryCoach.id
+      ]
+    )
+
+  private static func makeTemporaryAudioFile() throws -> URL {
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("GolfTrace-whisper-test-\(UUID().uuidString)")
+      .appendingPathExtension("wav")
+    try Data([0x52, 0x49, 0x46, 0x46]).write(to: url, options: .atomic)
+    return url
+  }
 
   private static func makeGrounding(id: String, claimID: String) -> VisualClaimGrounding {
     VisualClaimGrounding(
