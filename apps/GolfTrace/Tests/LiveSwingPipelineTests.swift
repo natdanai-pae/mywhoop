@@ -438,7 +438,11 @@ final class LiveSwingPipelineTests: XCTestCase {
     let completion = try? XCTUnwrap(
       recorder.completions.last(where: { $0.epoch == secondToken.epoch })
     )
+    let originalCompletion = try? XCTUnwrap(
+      recorder.completions.last(where: { $0.epoch == firstToken.epoch })
+    )
     XCTAssertNotNil(completion)
+    XCTAssertNotNil(originalCompletion)
     XCTAssertEqual(
       CMTimeGetSeconds(completion?.session.endTimestamp ?? .invalid),
       0.88,
@@ -455,6 +459,14 @@ final class LiveSwingPipelineTests: XCTestCase {
     XCTAssertEqual(completion?.captureContext.orientation, .degrees90)
     XCTAssertEqual(completion?.captureContext.encodedPixelWidth, 1_920)
     XCTAssertTrue(completion?.result.evidencePacket.validationIssues().isEmpty == true)
+    XCTAssertEqual(
+      completion?.motionSkeletonEvidence,
+      originalCompletion?.motionSkeletonEvidence
+    )
+    XCTAssertEqual(
+      completion?.motionSkeletonEvidence,
+      .unavailable(.streamSessionMismatch(frameIndex: 0))
+    )
   }
 
   func testNeutralShadowLeavesLegacySessionAndEvidenceOutputUnchanged() async throws {
@@ -503,6 +515,23 @@ final class LiveSwingPipelineTests: XCTestCase {
     XCTAssertEqual(completion.result, legacy.result)
     XCTAssertEqual(completion.captureContext, context)
     XCTAssertEqual(pipeline.motionSkeletonSnapshot().frames.count, poses.count)
+
+    guard case .available(let neutralSlice) = completion.motionSkeletonEvidence else {
+      XCTFail("Expected one completion-scoped neutral skeleton slice")
+      return
+    }
+    XCTAssertEqual(neutralSlice.timeRange.startSeconds, 0.40, accuracy: 0.000_001)
+    XCTAssertEqual(neutralSlice.timeRange.endSeconds, 0.88, accuracy: 0.000_001)
+    XCTAssertEqual(
+      neutralSlice.frames.map(\.context.sourceTimeSeconds),
+      [0.40, 0.46, 0.56, 0.66, 0.77, 0.88]
+    )
+    XCTAssertEqual(neutralSlice.provenance.streamSessionID, token.streamSessionID)
+    XCTAssertEqual(neutralSlice.provenance.sourceID.rawValue, "iphone.camera.regression")
+    XCTAssertEqual(neutralSlice.provenance.viewpoint, .faceOn)
+    XCTAssertEqual(neutralSlice.provenance.coordinateSpace, .normalizedImage2D)
+    XCTAssertEqual(neutralSlice.provenance.rotationDegrees, 90)
+    XCTAssertTrue(neutralSlice.provenance.isMirrored)
   }
 
   private func makePipeline(recorder: PipelineRecorder) -> LiveSwingPipeline {

@@ -7,10 +7,11 @@ This document designs GolfTrace's motion-analysis boundary. It does not claim th
 listed three-dimensional metrics or full live ten-phase detection are implemented today.
 The canonical ten-phase vocabulary is implemented, but the authoritative runtime still
 produces partial legacy phase evidence. Accepted poses are also translated into bounded,
-detector-neutral shadow skeleton frames that no UI, persistence, metric, phase, or coaching
-path consumes yet. The contracts let later work add validated phase detection, Face-On,
-Down-The-Line, and synchronized multi-camera analysis without moving UI concerns into the
-analysis code.
+detector-neutral shadow skeleton frames. At completion, a pure slicer produces one
+provenance-checked internal evidence result, but no UI, persistence, metric, phase, or
+coaching path consumes it yet. The contracts let later work add validated phase detection,
+Face-On, Down-The-Line, and synchronized multi-camera analysis without moving UI concerns
+into the analysis code.
 
 ## 1. Current implementation
 
@@ -682,13 +683,19 @@ The first Milestone 2 slice is deliberately non-authoritative:
 - invalid, negative, or regressing source timestamps are rejected before mutating the ring;
 - immutable snapshots are available for future analyzers, while latest-frame access reads
   the ring tail without copying the whole window;
+- when a legacy swing completes, `MotionSkeletonSessionSlicer` selects the exact inclusive
+  session time range once, validates frozen stream/source/viewpoint/coordinate-space/
+  orientation/mirroring provenance and joint evidence, and returns a typed abstention rather
+  than interpolating or relabelling incomplete evidence;
+- the completion retains that immutable shadow result, so reconnect re-delivery never reads
+  a reset or newer ring;
 - legacy session detection, metrics, evidence, UI, persistence, replay, and coaching remain
   authoritative and unchanged.
 
 This slice is not permission to poll full snapshots from SwiftUI or to publish neutral
-metrics. Before any consumer becomes authoritative, profile the adapter and ring on real
-iPhone streams, define one bounded consumption cadence, and validate results against labeled
-Face-On and Down-The-Line fixtures.
+metrics. Completion is the only downstream cadence introduced here. Before any analyzer
+becomes authoritative, profile the adapter, ring, and slicer on real iPhone streams and
+validate results against labeled Face-On and Down-The-Line fixtures.
 
 ## 15. Validation strategy after Milestone 1
 
