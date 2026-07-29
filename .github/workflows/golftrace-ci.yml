@@ -1,0 +1,181 @@
+name: GolfTrace CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/GolfTrace/**"
+      - "apps/GolfTraceCamera/**"
+      - "apps/Shared/**"
+      - ".github/workflows/golftrace-ci.yml"
+  pull_request:
+    paths:
+      - "apps/GolfTrace/**"
+      - "apps/GolfTraceCamera/**"
+      - "apps/Shared/**"
+      - ".github/workflows/golftrace-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-tests:
+    name: GolfTrace — macOS tests
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/GolfTrace
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate GolfTrace project
+        run: xcodegen generate
+      - name: Test GolfTrace on macOS
+        run: |
+          xcodebuild \
+            -project GolfTrace.xcodeproj \
+            -scheme GolfTrace \
+            -configuration Debug \
+            -destination "platform=macOS" \
+            -derivedDataPath "$RUNNER_TEMP/GolfTraceDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+
+  ios-build-and-tests:
+    name: GolfTraceCamera — iOS build and tests
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/GolfTraceCamera
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate GolfTraceCamera project
+        run: xcodegen generate
+      - name: Build GolfTraceCamera for generic iOS Simulator
+        run: |
+          xcodebuild \
+            -project GolfTraceCamera.xcodeproj \
+            -scheme GolfTraceCamera \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath "$RUNNER_TEMP/GolfTraceCameraBuildDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Select an available iPhone simulator
+        id: simulator
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          runtime_data = json.loads(
+              subprocess.check_output(
+                  ["xcrun", "simctl", "list", "runtimes", "available", "-j"],
+                  text=True,
+              )
+          )
+          simulator_data = json.loads(
+              subprocess.check_output(
+                  ["xcrun", "simctl", "list", "devices", "available", "-j"],
+                  text=True,
+              )
+          )
+
+          def version_tuple(value):
+              return tuple(int(part) for part in value.split("."))
+
+          runtimes = []
+          for runtime in runtime_data.get("runtimes", []):
+              identifier = runtime.get("identifier", "")
+              if (
+                  runtime.get("isAvailable")
+                  and ".SimRuntime.iOS-" in identifier
+              ):
+                  runtimes.append(runtime)
+
+          if not runtimes:
+              raise SystemExit("No available iOS Simulator runtime is installed")
+
+          runtime = max(
+              runtimes,
+              key=lambda item: version_tuple(item.get("version", "0")),
+          )
+          runtime_id = runtime["identifier"]
+          existing = [
+              device
+              for device in simulator_data.get("devices", {}).get(runtime_id, [])
+              if device.get("isAvailable")
+              and ".SimDeviceType.iPhone-" in device.get(
+                  "deviceTypeIdentifier", ""
+              )
+          ]
+
+          if existing:
+              device = existing[0]
+          else:
+              supported_types = [
+                  device_type
+                  for device_type in runtime.get("supportedDeviceTypes", [])
+                  if device_type.get("productFamily") == "iPhone"
+              ]
+              if not supported_types:
+                  raise SystemExit(
+                      "The newest iOS runtime has no supported iPhone device type"
+                  )
+
+              device_type = supported_types[0]
+              udid = subprocess.check_output(
+                  [
+                      "xcrun",
+                      "simctl",
+                      "create",
+                      "GolfTrace CI iPhone",
+                      device_type["identifier"],
+                      runtime_id,
+                  ],
+                  text=True,
+              ).strip()
+              if not udid:
+                  raise SystemExit("simctl did not return a simulator UDID")
+              device = {
+                  "name": "GolfTrace CI iPhone",
+                  "udid": udid,
+              }
+
+          if not device.get("udid"):
+              raise SystemExit("Selected iPhone simulator has no UDID")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"udid={device['udid']}", file=output)
+
+          print(
+              f"Selected {device['name']} ({runtime_id}) "
+              f"with UDID {device['udid']}"
+          )
+          PY
+      - name: Test GolfTraceCamera on selected iPhone simulator
+        env:
+          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          xcodebuild \
+            -project GolfTraceCamera.xcodeproj \
+            -scheme GolfTraceCamera \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -destination-timeout 120 \
+            -derivedDataPath "$RUNNER_TEMP/GolfTraceCameraTestDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            test

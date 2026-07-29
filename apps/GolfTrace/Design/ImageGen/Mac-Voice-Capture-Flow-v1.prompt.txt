@@ -1,0 +1,16 @@
+Use case: ui-mockup
+Asset type: high-fidelity macOS product UX state board for implementation guidance
+Primary request: Design the hands-free single-golfer voice capture flow for the existing GolfTrace Mac app. Show four equal state mockups in a clean 2x2 board: (1) ready and listening, (2) command acknowledged plus countdown, (3) recording one swing, (4) saved and replay ready.
+Input images:
+- Image 1 is the current real GolfTrace app and is the source of truth for layout: dark macOS window, GolfTrace header, Rapsodo panel on the left, iPhone camera panel on the right, draggable center divider, and one floating shared timeline at the bottom. Preserve this layout closely.
+- Image 2 is a style-quality reference only. Do not copy its different sidebar or older layout.
+Interaction intent: one person is holding a golf club and cannot touch the Mac. Every state must provide both a visible status and an audible AI response indicator. During address and the actual swing, keep speech minimal so it does not distract.
+State 1 exact Thai text: "พร้อมฟังคำสั่ง" and secondary text "พูด “กอล์ฟเทรซ เริ่มวง”". Use a blue microphone/waveform status in the existing centered AI Golf Pro pill.
+State 2 exact Thai text: "รับคำสั่งแล้ว · เตรียมตี". Show a large calm countdown number "3" centered over the iPhone camera area, with small sequence "3  2  1" and a compact mode label "นับถอยหลัง + Tempo 3:1".
+State 3 exact Thai text: "กำลังบันทึกวง". Use a restrained red recording dot and secondary text "AI รอวงจบอัตโนมัติ". Also show a small hands-free hint "พูด “กอล์ฟเทรซ ยกเลิก”".
+State 4 exact Thai text: "บันทึกแล้ว · กำลังเปิดรีเพลย์" followed by a green status "พร้อมตีวงถัดไป". Keep the shared timeline and replay controls in the same place.
+Style/medium: shippable realistic native macOS UI, SF Pro / Thai system typography, not concept art
+Composition/framing: wide 16:9 design board, four panels remain legible, same 64/36 source split in every state, top-center status pill and bottom floating timeline remain consistent
+Color palette: near-black navy canvas, subtle gray borders, cobalt blue AI/listening, green ready/success, orange camera identity, red only for active recording
+Constraints: preserve the current compact header and two-source layout; no new sidebar; no duplicate video player; no floating AI chat panel; no giant modal blocking both sources; response is always visible and has a speaker/waveform indicator; countdown may overlay only the iPhone camera panel; practical spacing and controls; exact Thai copy where supplied; no invented Rapsodo metrics; no watermark
+Avoid: ghost golfer silhouettes, excessive glow, generic sci-fi HUD, tiny unreadable text, long spoken coaching during the swing, cluttered top menus

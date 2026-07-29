@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>th</string>
+  <key>CFBundleDisplayName</key>
+  <string>วิเคราะห์วงสวิง</string>
+  <key>CFBundleIdentifier</key>
+  <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+  <key>CFBundleName</key>
+  <string>วิเคราะห์วงสวิง</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>$(MARKETING_VERSION)</string>
+  <key>CFBundleVersion</key>
+  <string>$(CURRENT_PROJECT_VERSION)</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>14.0</string>
+  <key>NSCameraUsageDescription</key>
+  <string>แอปต้องใช้กล้อง iPhone เพื่อแสดงภาพและวิเคราะห์วงสวิงของคุณ</string>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>แอปใช้ Bluetooth เพื่อรับความเร็วลูก มุมเหิน และค่าสปินจาก Rapsodo MLM2PRO โดยตรง</string>
+  <key>NSCameraUseContinuityCameraDeviceType</key>
+  <true/>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_golftrace._tcp</string>
+  </array>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>แอปรับวิดีโอวงสวิงความเร็วสูงจาก iPhone ที่เปิดแอปกล้องวงสวิง เพื่อนำมาวิเคราะห์บน Mac เครื่องนี้</string>
+  <key>NSMicrophoneUsageDescription</key>
+	<string>แอปใช้ไมโครโฟนเพื่อฟังคำสั่ง “กอล์ฟเทรซ เริ่มวง” และ “กอล์ฟเทรซ ยกเลิก” แบบแฮนด์ฟรี และเมื่อคุณกดถาม AI Golf Pro</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+	<string>แอปใช้การรู้จำเสียงภาษาไทยเพื่อแปลงคำสั่ง “กอล์ฟเทรซ เริ่มวง” และ “กอล์ฟเทรซ ยกเลิก” เป็นคำสั่งควบคุมการซ้อมบน Mac</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>แอปใช้สิทธิ์บันทึกหน้าจอเพื่อรับภาพจากหน้าต่างสะท้อน iPhone และสร้างภาพย้อนหลังของหน้าต่าง GolfTrace ทั้งหน้าต่างไว้ในเครื่อง</string>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+</dict>
+</plist>

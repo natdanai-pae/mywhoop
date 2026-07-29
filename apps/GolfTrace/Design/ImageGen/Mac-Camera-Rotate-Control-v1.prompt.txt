@@ -1,0 +1,8 @@
+Use case: ui-mockup
+Asset type: focused GolfTrace macOS camera-toolbar correction guide
+Primary request: Edit the supplied GolfTrace screenshot only to redesign the compact top-right camera control pill. Add a clearly visible one-tap rotate-180 control inside the same pill, between the zoom selector and fullscreen control. Use the SF Symbol visual language of rotate.right, no text label. Show the rotate button in its active/corrected state with a restrained GolfTrace blue highlight and thin blue ring.
+Input image: the supplied screenshot is the edit target and must remain otherwise unchanged.
+Style/medium: pixel-faithful premium dark macOS app UI, matching the existing pill, spacing, borders, typography, blur, and icon weights.
+Composition/framing: preserve the entire screenshot crop and all existing content; edit only the top-right camera toolbar.
+Constraints: do not change, rotate, crop, recolor, or replace the camera video itself; do not change any other control; retain 1.0x and fullscreen; one compact rotate icon only; no new panels; no extra text; no watermark.
+Avoid: redesigning the app, duplicated controls, floating menus, large labels, changed camera scene.

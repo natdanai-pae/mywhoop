@@ -1,0 +1,27 @@
+Use case: ui-mockup
+Asset type: implementation guide for the macOS GolfTrace app, wide desktop 16:10.
+Input images:
+- Image 1 is the exact current GolfTrace main-window theme and header that must be preserved.
+- Image 2 is the legacy History popup whose content must be redesigned.
+
+Primary request:
+Redesign History as an integrated full-window workspace underneath the existing GolfTrace header. Never present it as a popup, sheet, floating dialog, or default SwiftUI Form/List.
+
+Composition:
+- Preserve the current dark navy/black visual language, top GolfTrace header, rounded borders, blue accent, typography scale, spacing rhythm, and macOS window chrome.
+- Keep the top header visible and show History as the active destination.
+- Use a two-column workspace: a compact 31% history browser and a 69% selected-swing detail area.
+- Left: heading "ประวัติวงสวิง", total count/status, search/filter controls, grouped date sections, and generous record cards. Each card shows factual date/time, duration, replay availability, camera source/angle, and a thumbnail only when real media is available.
+- Right: selected swing heading with source evidence, a large 16:9 factual preview, status badges, and a prominent "เปิด Replay" button.
+- Under the preview show an eight-phase Swing Storyboard from one camera angle. Empty phase slots must look intentionally unavailable, not broken.
+- Show Rapsodo metrics only when recorded. When absent, show "ยังไม่มีค่าจาก MLM2PRO" instead of invented numbers.
+- Reuse the shared playback timeline at the bottom and include a clear "กลับหน้าซ้อม" action.
+
+Text (verbatim where legible):
+"ประวัติวงสวิง", "20 วง", "กลับหน้าซ้อม", "เปิด Replay", "Swing Storyboard", "มุมเดียว", "ยังไม่มีค่าจาก MLM2PRO".
+
+Constraints:
+Implementation-ready, dense but calm, large click targets, strong hierarchy, consistent 14-18 px corner radii, no glossy gradients, no macOS Settings-style sidebar, no system-grey sheet, no DisclosureGroup, no tiny icon-only replay button, no invented statistics, no destructive action.
+
+Avoid:
+Popup/modal framing, old SwiftUI default controls, unrelated analytics, human illustration, excessive neon, visual clutter, watermark.
