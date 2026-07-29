@@ -1,14 +1,16 @@
 # Motion Engine Architecture
 
-Status: proposed architecture, with the Milestone 1 additive domain contracts and focused
-tests implemented.
+Status: proposed architecture, with the Milestone 1 additive domain contracts and the first
+Milestone 2 shadow-runtime slice implemented.
 
 This document designs GolfTrace's motion-analysis boundary. It does not claim that the
 listed three-dimensional metrics or full live ten-phase detection are implemented today.
-The canonical ten-phase vocabulary is implemented, but the immediate runtime still produces
-partial legacy phase evidence. The contracts give the existing pipeline stable, reusable
-domain types so later work can add validated phase detection, Face-On, Down-The-Line, and
-synchronized multi-camera analysis without moving UI concerns into the analysis code.
+The canonical ten-phase vocabulary is implemented, but the authoritative runtime still
+produces partial legacy phase evidence. Accepted poses are also translated into bounded,
+detector-neutral shadow skeleton frames that no UI, persistence, metric, phase, or coaching
+path consumes yet. The contracts let later work add validated phase detection, Face-On,
+Down-The-Line, and synchronized multi-camera analysis without moving UI concerns into the
+analysis code.
 
 ## 1. Current implementation
 
@@ -668,7 +670,27 @@ Definition of Done:
 8. The focused contract tests pass; real-device and full phase/metric validation remain
    separate acceptance work.
 
-## 14. Validation strategy after Milestone 1
+## 14. Milestone 2 shadow runtime slice
+
+The first Milestone 2 slice is deliberately non-authoritative:
+
+- every accepted `PoseFrame` is additionally translated by
+  `AppleVisionMotionSkeletonAdapter` on the existing serial analysis queue;
+- neutral frames are retained in a six-second ring with a 720-frame absolute ceiling;
+- reset generations and mid-stream source/viewpoint/mirroring changes create a new stream
+  identity and clear prior neutral frames;
+- invalid, negative, or regressing source timestamps are rejected before mutating the ring;
+- immutable snapshots are available for future analyzers, while latest-frame access reads
+  the ring tail without copying the whole window;
+- legacy session detection, metrics, evidence, UI, persistence, replay, and coaching remain
+  authoritative and unchanged.
+
+This slice is not permission to poll full snapshots from SwiftUI or to publish neutral
+metrics. Before any consumer becomes authoritative, profile the adapter and ring on real
+iPhone streams, define one bounded consumption cadence, and validate results against labeled
+Face-On and Down-The-Line fixtures.
+
+## 15. Validation strategy after Milestone 1
 
 Later algorithm milestones require more than unit tests:
 

@@ -303,10 +303,12 @@ Non-goals:
 
 ### Milestone 2 — Runtime adapters and session orchestration
 
-Status: the dedicated GolfTrace macOS/iOS CI lanes are in place. Runtime adoption of the
-neutral motion/provider boundaries and session orchestration remains incomplete.
+Status: the dedicated GolfTrace macOS/iOS CI lanes and the first neutral-skeleton shadow
+runtime slice are in place. Provider-store/UI migration, session orchestration, and
+authoritative neutral motion analysis remain incomplete.
 
-- route current Vision output through the already-tested neutral skeleton adapter;
+- validate and then promote the bounded neutral-skeleton shadow output to downstream motion
+  consumers without changing legacy results prematurely;
 - adopt the already-tested MLM2PRO provider adapter at the composition root while preserving
   behavior;
 - introduce a practice-session coordinator and typed domain events;

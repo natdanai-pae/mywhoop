@@ -1,4 +1,3 @@
-import CoreMedia
 import Foundation
 
 /// Capture metadata sampled independently from the ordered pose stream.
@@ -12,6 +11,7 @@ struct LiveSwingCaptureContext: Equatable, Sendable {
   var cameraView: String
   var sourceID: String
   var orientation: SwingStoryboardCaptureOrientation
+  var isMirrored: Bool
   var encodedPixelWidth: Int?
   var encodedPixelHeight: Int?
 
@@ -21,6 +21,7 @@ struct LiveSwingCaptureContext: Equatable, Sendable {
     cameraView: String,
     sourceID: String = SwingStoryboardCaptureSnapshot.primaryIPhoneSourceID,
     orientation: SwingStoryboardCaptureOrientation = .unknown,
+    isMirrored: Bool = false,
     encodedPixelWidth: Int? = nil,
     encodedPixelHeight: Int? = nil
   ) {
@@ -29,6 +30,7 @@ struct LiveSwingCaptureContext: Equatable, Sendable {
     self.cameraView = cameraView
     self.sourceID = sourceID
     self.orientation = orientation
+    self.isMirrored = isMirrored
     self.encodedPixelWidth = encodedPixelWidth
     self.encodedPixelHeight = encodedPixelHeight
   }
@@ -74,6 +76,7 @@ struct LiveSwingCompletion: @unchecked Sendable {
 struct LiveSwingPipelineResetToken: Equatable, Sendable {
   let epoch: UInt64
   let sourceGeneration: UInt64
+  let streamSessionID: UUID
 }
 
 /// Owns all mutable live swing analyzers on one ordered serial executor.
@@ -122,10 +125,23 @@ final class LiveSwingPipeline: @unchecked Sendable {
     let sessionStatus: String
   }
 
+  private struct MotionSkeletonSourceIdentity: Equatable, Sendable {
+    let sourceID: MotionCameraSourceID
+    let viewpoint: MotionCameraViewpoint
+    let isMirrored: Bool
+
+    init(captureContext: LiveSwingCaptureContext) {
+      sourceID = MotionCameraSourceID(rawValue: captureContext.sourceID)
+      viewpoint = MotionCameraViewpoint(liveCameraView: captureContext.cameraView)
+      isMirrored = captureContext.isMirrored
+    }
+  }
+
   private let queue = DispatchQueue(
     label: "com.bda.golftrace.live-swing-pipeline",
     qos: .userInitiated
   )
+  private let queueKey = DispatchSpecificKey<UInt8>()
   /// Serializes enqueue order between the pose queue and main-actor resets.
   private let submissionLock = NSLock()
   private var submittedEpoch: UInt64 = 0
@@ -137,6 +153,8 @@ final class LiveSwingPipeline: @unchecked Sendable {
   private let motionAnalyzer: SwingMotionAnalyzer
   private let sessionDetector: SwingSessionDetector
   private let metricsAnalyzer: SwingMetricsAnalyzer
+  private let motionSkeletonAdapter = AppleVisionMotionSkeletonAdapter()
+  private var motionSkeletonWindow: MotionSkeletonFrameWindow
   private var captureContext = LiveSwingCaptureContext.initial
   private var activeSessionCaptureContext: LiveSwingCaptureContext?
   private var processedPoseCount = 0
@@ -157,6 +175,7 @@ final class LiveSwingPipeline: @unchecked Sendable {
     onSnapshot: @escaping SnapshotDelivery,
     onCompletion: @escaping CompletionDelivery
   ) {
+    motionSkeletonWindow = MotionSkeletonFrameWindow(streamSessionID: UUID())
     motionAnalyzer = SwingMotionAnalyzer(
       positionSmoothingTimeConstant: positionSmoothingTimeConstant
     )
@@ -167,6 +186,7 @@ final class LiveSwingPipeline: @unchecked Sendable {
       delivery: onSnapshot
     )
     completionDelivery = onCompletion
+    queue.setSpecific(key: queueKey, value: 1)
   }
 
   /// Invalidates all submitted work from the previous epoch and advances the
@@ -182,7 +202,8 @@ final class LiveSwingPipeline: @unchecked Sendable {
     expectedSourceGeneration &+= 1
     let token = LiveSwingPipelineResetToken(
       epoch: submittedEpoch,
-      sourceGeneration: expectedSourceGeneration
+      sourceGeneration: expectedSourceGeneration,
+      streamSessionID: UUID()
     )
     let request = ResetRequest(
       token: token,
@@ -214,9 +235,36 @@ final class LiveSwingPipeline: @unchecked Sendable {
   func updateCaptureContext(_ context: LiveSwingCaptureContext) {
     submissionLock.lock()
     queue.async { [weak self] in
-      self?.captureContext = context
+      self?.applyCaptureContext(context)
     }
     submissionLock.unlock()
+  }
+
+  /// Returns an immutable neutral batch after all submissions that preceded
+  /// this call. This is a read-only shadow output; legacy UI, persistence, and
+  /// coaching continue to consume their existing authoritative models.
+  func motionSkeletonSnapshot() -> MotionSkeletonFrameSnapshot {
+    if DispatchQueue.getSpecific(key: queueKey) != nil {
+      return motionSkeletonWindow.snapshot()
+    }
+
+    submissionLock.lock()
+    defer { submissionLock.unlock() }
+    return queue.sync {
+      motionSkeletonWindow.snapshot()
+    }
+  }
+
+  var latestMotionSkeletonFrame: MotionSkeletonFrame? {
+    if DispatchQueue.getSpecific(key: queueKey) != nil {
+      return motionSkeletonWindow.latestFrame
+    }
+
+    submissionLock.lock()
+    defer { submissionLock.unlock() }
+    return queue.sync {
+      motionSkeletonWindow.latestFrame
+    }
   }
 
   /// Test/support hook that runs after all work submitted before this call.
@@ -229,6 +277,7 @@ final class LiveSwingPipeline: @unchecked Sendable {
   private func applyReset(_ request: ResetRequest) {
     activeEpoch = request.token.epoch
     activeSourceGeneration = request.token.sourceGeneration
+    motionSkeletonWindow.reset(streamSessionID: request.token.streamSessionID)
     pendingLiveState = nil
     isLiveSnapshotScheduled = false
     liveSnapshotScheduleID &+= 1
@@ -259,6 +308,23 @@ final class LiveSwingPipeline: @unchecked Sendable {
     }
   }
 
+  private func applyCaptureContext(_ context: LiveSwingCaptureContext) {
+    let previousIdentity = MotionSkeletonSourceIdentity(captureContext: captureContext)
+    let nextIdentity = MotionSkeletonSourceIdentity(captureContext: context)
+    captureContext = context
+
+    // Source, viewpoint, and mirroring define one neutral stream. Preserve the
+    // reset token while the window is empty, but start a fresh stream before a
+    // mid-generation provenance change could mix incompatible frames.
+    guard
+      motionSkeletonWindow.latestFrame != nil,
+      previousIdentity != nextIdentity
+    else {
+      return
+    }
+    motionSkeletonWindow.reset(streamSessionID: UUID())
+  }
+
   private func process(_ transfer: PoseTransfer) {
     guard transfer.sourceGeneration == activeSourceGeneration,
       transfer.epoch == activeEpoch
@@ -283,6 +349,7 @@ final class LiveSwingPipeline: @unchecked Sendable {
     }
     let nextStatus = sessionDetector.statusText
     processedPoseCount += 1
+    appendMotionSkeletonFrame(from: transfer.pose)
 
     offerLiveState(
       PendingLiveState(
@@ -315,6 +382,28 @@ final class LiveSwingPipeline: @unchecked Sendable {
     activeSessionCaptureContext = nil
     lastCompletion = completion
     deliverCompletion(completion)
+  }
+
+  private func appendMotionSkeletonFrame(from pose: PoseFrame?) {
+    guard let pose else { return }
+    let identity = MotionSkeletonSourceIdentity(captureContext: captureContext)
+    let sourceContext = MotionFrameSourceContext(
+      sourceID: identity.sourceID,
+      streamSessionID: motionSkeletonWindow.streamSessionID,
+      viewpoint: identity.viewpoint,
+      isMirrored: identity.isMirrored
+    )
+    // Invalid media time omits only this shadow frame. The legacy analyzers
+    // above remain authoritative and keep their existing behavior.
+    guard
+      let frame = try? motionSkeletonAdapter.skeleton(
+        from: pose,
+        sourceContext: sourceContext
+      )
+    else {
+      return
+    }
+    motionSkeletonWindow.append(frame)
   }
 
   private func offerLiveState(_ state: PendingLiveState) {
@@ -363,6 +452,26 @@ final class LiveSwingPipeline: @unchecked Sendable {
     }
   }
 
+}
+
+extension MotionCameraViewpoint {
+  init(liveCameraView: String) {
+    let trimmed = liveCameraView.trimmingCharacters(in: .whitespacesAndNewlines)
+    let canonicalKey =
+      trimmed
+      .lowercased()
+      .filter(\.isLetter)
+    switch canonicalKey {
+    case "faceon":
+      self = .faceOn
+    case "downtheline":
+      self = .downTheLine
+    case "":
+      self = .unknown
+    default:
+      self = MotionCameraViewpoint(rawValue: trimmed)
+    }
+  }
 }
 
 /// A main-actor publisher with exactly one pending value and one outstanding

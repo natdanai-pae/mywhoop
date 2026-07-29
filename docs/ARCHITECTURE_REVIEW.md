@@ -386,10 +386,10 @@ introduced only when login/sync requires one.
 - The UI observes the concrete MLM2PRO `LaunchMonitorController`.
 - Launch connection state, events, AI evidence, and persisted shots contain provider-specific
   names or assumptions.
-- The live pose and metric path still depends directly on Vision joint identifiers and Apple
-  media time. The additive adapter now derives exact frame context, rejects invalid media
-  time, and emits only explicitly mapped stable neutral joints, but the live path is not yet
-  routed through it.
+- Legacy live metrics still depend directly on Vision joint identifiers and Apple media
+  time. Accepted poses now also pass through the neutral adapter into a bounded shadow
+  skeleton window, but no UI, persistence, phase detector, metric calculator, or coach path
+  consumes that shadow output yet.
 - The additive domain contracts define the canonical ten-phase vocabulary, but the live path
   still emits partial string-based phase evidence and the eight-slot storyboard remains a
   presentation model. Full live ten-phase detection is neither integrated nor validated.
